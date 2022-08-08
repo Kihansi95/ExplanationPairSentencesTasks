@@ -1,0 +1,6 @@
+/.cache/
+*/**/.cache/
+*/**/.ipynb_checkpoints/
+/src/*.sh
+.DS_Store
+*/**/.DS_store
