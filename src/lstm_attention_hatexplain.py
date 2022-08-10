@@ -8,7 +8,6 @@ from os import path
 from typing import Union
 import json
 
-import pandas as pd
 from pytorch_lightning.loggers import TensorBoardLogger
 from tqdm import tqdm
 
@@ -24,21 +23,12 @@ import torchtext.transforms as T
 import torchmetrics as m
 
 from modules.logger import log, init_logging
-from modules import metrics, env
-from data.hatexplain.dataset import HateXPlain
+from modules import metrics, env, rescale, INF
+from data import HateXPlain
 from model.lstm_attention import LstmAttention
 
-INF = 1e30 # Infinity
 PAD_TOK = '<pad>'
 UNK_TOK = '<unk>'
-
-def rescale(attention: torch.Tensor, mask: torch.Tensor):
-	v_max = torch.max(attention + mask.float() * -INF, dim=1, keepdim=True).values
-	v_min = torch.min(attention + mask.float() * INF, dim=1, keepdim=True).values
-	v_min[v_min == v_max] = 0.
-	rescale_attention = (attention - v_min)/(v_max - v_min)
-	rescale_attention[mask] = 0.
-	return rescale_attention
 
 class LitModel(pl.LightningModule):
 	
@@ -150,7 +140,7 @@ class LitModel(pl.LightningModule):
 		# log attentions metrics
 		if flat_a_hat is not None and a_hat.size(0) > 0:
 			metric_a = self.attention_metrics[stage](flat_a_hat, flat_a_true)
-			metric_a['a:_entropy'] = self.entropy_metric[stage](a_hat, pad_mask)
+			metric_a['a:entropy'] = self.entropy_metric[stage](a_hat, pad_mask)
 			metric_a = {f'{stage}/{k}': v.item() for k, v in metric_a.items()}  # put metrics within same stage under the same folder
 			self.log_dict(metric_a, prog_bar=True)
 		
@@ -214,7 +204,7 @@ class LitModel(pl.LightningModule):
 	def on_train_start(self):   
 		init_hp_metrics = {f'TEST/{k}': 0 for k in self.y_metrics['TEST']}
 		init_hp_metrics.update({f'TEST/{k}': 0 for k in self.attention_metrics['TEST']})
-		init_hp_metrics.update({f'TEST/attn_entropy': 0})
+		init_hp_metrics.update({f'TEST/a:entropy': 0})
 		self.logger.log_hyperparams(self.hparams, init_hp_metrics)
 	
 	def on_train_epoch_start(self):
@@ -254,7 +244,6 @@ class LitData(pl.LightningDataModule):
 		self.cache_path = cache_path
 		self.batch_size = batch_size
 		# Dataset already tokenized
-		self.dataset = {'train': None, 'val': None, 'test': None}
 		self.n_data = n_data
 		self.num_workers = num_workers
 	
@@ -327,7 +316,6 @@ class LitData(pl.LightningDataModule):
 		
 		if stage == 'test' or stage is None:
 			self.test_set = HateXPlain(split='test', **dataset_kwargs)
-		return DataLoader(self.train_set, batch_size=self.batch_size, shuffle=True, collate_fn=self.collate, num_workers=self.num_workers)
 	
 	def train_dataloader(self):
 		return DataLoader(self.train_set, batch_size=self.batch_size, shuffle=False, collate_fn=self.collate, num_workers=self.num_workers)

@@ -1,21 +1,43 @@
 import re
 
+from bs4 import BeautifulSoup
+
 from modules.logger import log
+import numpy as np
 
 
-def yelp_hat_ham(html):
+def yelp_hat_ham(html, spacy_model):
+	soup = BeautifulSoup(html, 'html.parser')
+	tags = [tag for tag in soup.find_all('span') if tag.string is not None]
+	
+	tag_annot = [int('active' in t.get('class', [])) for t in tags]
+	tag_str = [str(t.string) for t in tags]
+	
+	ham = []
+	
+	for annot, splitted_tokens in zip(tag_annot, spacy_model.pipe(tag_str, disable=['ner',"parser"])):
+		annotation = [annot * int(not tk.is_punct) for tk in splitted_tokens]
+		ham += annotation
+	
+	return ham
 
-    p = re.compile('<span(.*?)/span>')
-    all_span_items = p.findall(html)
-    
-    if all_span_items[-1] == '><': all_span_items = all_span_items[:-1]
+def yelp_hat_token(html, spacy_model):
+	soup = BeautifulSoup(html, 'html.parser')
+	tags = [str(tag.string) for tag in soup.find_all('span') if tag.string is not None]
+	tokens = [str(tk.text) for doc in spacy_model.pipe(tags, disable=['ner', "parser"]) for tk in doc]
+	return tokens
 
-    return [int('class="active"' in span_item) for span_item in all_span_items]
 
-def yelp_hat_token(html):
-    p = re.compile(r'<span[^>]*>(.+?)</span>')
-    tokens = p.findall(html)
-    return tokens
+def cam(row):
+	return np.logical_and(row['ham_0'], row['ham_1'], row['ham_2'])
+
+
+def sam(row):
+	return np.logical_or(row['ham_0'], row['ham_1'], row['ham_2'])
+
+
+def ham(row):
+	return ((row['ham_0'] + row['ham_1'] + row['ham_2']) / 3 >= 0.5).astype(int)
 
 
 def generate_binary_human_attention_vector(html, num_words_in_review, max_words):

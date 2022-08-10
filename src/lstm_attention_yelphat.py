@@ -8,7 +8,9 @@ from os import path
 from typing import Union
 import json
 
+import spacy
 from pytorch_lightning.loggers import TensorBoardLogger
+from pytorch_lightning.trainer.supporters import CombinedLoader
 from tqdm import tqdm
 
 import pytorch_lightning as pl
@@ -23,31 +25,22 @@ import torchtext.transforms as T
 import torchmetrics as m
 
 from modules.logger import init_logging, log
-from modules import metrics, env
-from data.hatexplain.dataset import HateXPlain
+from modules import metrics, env, INF, rescale
+from data import YelpHat
 from model.lstm_attention import LstmAttention
 
-INF = 1e30 # Infinity
 PAD_TOK = '<pad>'
 UNK_TOK = '<unk>'
-
-def rescale(attention: torch.Tensor, mask: torch.Tensor):
-	v_max = torch.max(attention + mask.float() * -INF, dim=1, keepdim=True).values
-	v_min = torch.min(attention + mask.float() * INF, dim=1, keepdim=True).values
-	v_min[v_min == v_max] = 0.
-	rescale_attention = (attention - v_min)/(v_max - v_min)
-	rescale_attention[mask] = 0.
-	return rescale_attention
 
 class LitModel(pl.LightningModule):
 	
 	def __init__(self, cache_path, mode, vocab, pretrained_vectors: Union[str, torch.tensor]=None,
-	             lamb:float = 0.,
+	             lambda_entropy:float = 0.,
 	             **kwargs):
 		super(LitModel, self).__init__()
 		
 		# log hyperparameters into hparams.yaml
-		self.save_hyperparameters('n_lstm', 'lamb')
+		self.save_hyperparameters('n_lstm', 'lambda_entropy')
 		
 		if pretrained_vectors is not None and isinstance(pretrained_vectors, str):
 			vector_path = path.join(cache_path, '.vector_cache')
@@ -65,23 +58,27 @@ class LitModel(pl.LightningModule):
 		
 		self.vocab = vocab
 		self._mode = mode
-		self.lamb = lamb
+		self.lambda_entropy = lambda_entropy
 		
 		template_y_metrics = m.MetricCollection({
-			'accuracy': m.Accuracy(num_classes=3),
-			'f1': m.F1Score(num_classes=3)
+			'y:accuracy': m.Accuracy(num_classes=3),
+			'y:fscore': m.F1Score(num_classes=3)
 		})
 		
 		with warnings.catch_warnings():
-			warnings.simplefilter("ignore")
 			template_attention_metrics = m.MetricCollection({
-				'attention_auc_roc': m.AUROC(average='micro'),
-				'attention_recall': m.Recall(),
-				'attention_specificity': m.Specificity(),
-				'attention_jaccard': m.JaccardIndex(num_classes=2),
+				'a:AUROC': m.AUROC(average='micro'),
+				'a:AUPRC': m.AveragePrecision(average='micro'),
+				'a:Jaccard': metrics.PowerJaccard(),
+				'a:Jaccard2': metrics.PowerJaccard(power=2.),
+				'a:Dice': m.Dice(),
+				'a:IoU': m.JaccardIndex(num_classes=2),
+				'a:Recall': m.Recall(),
+				'a:Precision': m.Precision(),
 			})
+			warnings.simplefilter("ignore")
 		
-		PHASES = ['train_', 'val_', 'test_']
+		PHASES = ['TRAIN', 'VAL', 'TEST']
 		self.y_metrics = nn.ModuleDict({
 			phase: template_y_metrics.clone() for phase in PHASES
 		})
@@ -107,29 +104,30 @@ class LitModel(pl.LightningModule):
 		
 		y_true = batch['label']
 		padding_mask = batch['padding_mask']
-		a_true = batch['rationale']
-		y_hat, attentions = self(ids=batch['post_tokens'], mask=padding_mask)
+		a_true = batch['ham']
+		y_hat, attentions = self(ids=batch['text_tokens'], mask=padding_mask)
 		
 		loss = self.loss_fn(y_hat, y_true)
-		loss_entropy = metrics.entropy(attentions, padding_mask, normalize=True)
-		loss += self.lamb * loss_entropy
+		loss_entropy = metrics.entropy(attentions, padding_mask, normalize=True, average='micro')
+		loss += self.lambda_entropy * loss_entropy
 		
 		return {'loss': loss, 'y_hat': y_hat, 'y_true': y_true, 'a_hat': attentions, 'a_true': a_true, 'pad_mask': padding_mask}
 	
 	def validation_step(self, batch, batch_idx):
 		return self.training_step(batch, batch_idx, True)
 	
-	def test_step(self, batch, batch_idx):
-
-		y_hat, attentions = self(batch)
+	def test_step(self, batch, batch_idx, dataloader_idx=None):
+		
+		padding_mask = batch['padding_mask']
+		y_hat, attentions = self(ids=batch['text_tokens'], mask=padding_mask)
 		
 		return {'y_hat': y_hat,
 		        'y_true': batch['label'],
 		        'a_hat': attentions.detach(),
-		        'a_true': batch['rationale'],
+		        'a_true': batch['ham'],
 		        'pad_mask': batch['padding_mask']}
 	
-	def step_end(self, outputs, stage: str = 'test_'):
+	def step_end(self, outputs, stage: str = 'TEST'):
 		
 		a_hat, a_true = outputs['a_hat'], outputs['a_true']
 		y_hat, y_true = outputs['y_hat'], outputs['y_true']
@@ -143,10 +141,9 @@ class LitModel(pl.LightningModule):
 			normalize='softmax_rescale')
 		
 		# log attentions metrics
-		metric_a = None
 		if flat_a_hat is not None and a_hat.size(0) > 0:
 			metric_a = self.attention_metrics[stage](flat_a_hat, flat_a_true)
-			metric_a['attn_entropy'] = self.entropy_metric[stage](a_hat, pad_mask)
+			metric_a['a:entropy'] = self.entropy_metric[stage](a_hat, pad_mask)
 			metric_a = {f'{stage}/{k}': v.item() for k, v in metric_a.items()}  # put metrics within same stage under the same folder
 			self.log_dict(metric_a, prog_bar=True)
 		
@@ -155,26 +152,18 @@ class LitModel(pl.LightningModule):
 		metric_y = {f'{stage}/{k}': v for k, v in metric_y.items()}  # put metrics within same stage under the same folder
 		self.log_dict(metric_y, prog_bar=True)
 		
-		if stage != 'test_':
+		if stage != 'TEST':
 			# if not in test stage, log for loss metrics
 			self.log(f'{stage}/loss', outputs['loss'], prog_bar=True)
-			
-		else:
-			# Log hyperparameters metrics if this is test
-			if metric_a is not None:
-				metric_a = { f'hp/{k.split("/")[-1]}': v for k, v in metric_a.items()}
-				self.log_dict(metric_a, on_epoch=True, prog_bar=False)
-			metric_y = {f'hp/{k.split("/")[-1]}': v for k, v in metric_y.items()}
-			self.log_dict(metric_y, on_epoch=True, prog_bar=False)
 	
 	def training_step_end(self, outputs):
-		return self.step_end(outputs, stage='train_')
+		return self.step_end(outputs, stage='TRAIN')
 	
 	def validation_step_end(self, outputs):
-		return self.step_end(outputs, stage='val_')
+		return self.step_end(outputs, stage='VAL')
 	
 	def test_step_end(self, outputs):
-		return self.step_end(outputs, stage='test_')
+		return self.step_end(outputs, stage='TEST')
 	
 	def flatten_attention(self, a_hat, a_true, pad_mask, condition=None, normalize:str =''):
 		"""
@@ -216,9 +205,9 @@ class LitModel(pl.LightningModule):
 		return flat_a_hat, flat_a_true
 	
 	def on_train_start(self):
-		init_hp_metrics = {f'hp/{k}': 0 for k in self.y_metrics['test_']}
-		init_hp_metrics.update({f'hp/{k}': 0 for k in self.attention_metrics['test_']})
-		init_hp_metrics.update({f'hp/attn_entropy': 0})
+		init_hp_metrics = {f'TEST/{k}': 0 for k in self.y_metrics['TEST']}
+		init_hp_metrics.update({f'TEST/{k}': 0 for k in self.attention_metrics['TEST']})
+		init_hp_metrics.update({f'TEST/a:entropy': 0})
 		self.logger.log_hyperparams(self.hparams, init_hp_metrics)
 	
 	def on_train_epoch_start(self):
@@ -236,16 +225,16 @@ class LitModel(pl.LightningModule):
 				log.warning(e)
 				
 			metric.update({
-				'attn_entropy': self.entropy_metric[stage].compute()
+				'a:entropy': self.entropy_metric[stage].compute()
 			})
 			metric = {k: round(v.item(), 2) for k, v in metric.items()}
 			log.info(f'Epoch {self.current_epoch} {stage}:{metric}')
 			
 	def on_train_epoch_end(self):
-		return self.epoch_end('train_')
+		return self.epoch_end('TRAIN')
 		
 	def on_validation_epoch_end(self):
-		return self.epoch_end('val_')
+		return self.epoch_end('VAL')
 		
 	def __str__(self):
 		return str(self.model)
@@ -258,28 +247,27 @@ class LitData(pl.LightningDataModule):
 		self.cache_path = cache_path
 		self.batch_size = batch_size
 		# Dataset already tokenized
-		self.dataset = {'train': None, 'val': None, 'test': None}
 		self.n_data = n_data
 		self.num_workers = num_workers
+		self.spacy_model = spacy.load('en_core_web_sm')
 	
 	def prepare_data(self):
 		# called only on 1 GPU
 		
 		# download_dataset()
-		dataset_path = HateXPlain.root(self.cache_path)
+		dataset_path = YelpHat.root(self.cache_path)
 		vocab_path = path.join(dataset_path, f'vocab.pt')
 		
-		for split in ['train', 'val', 'test']:
-			HateXPlain.download_format_dataset(dataset_path, split)
+		YelpHat.download_format_dataset(dataset_path) # only 1 line, download all dataset
 		
 		# build_vocab()
 		if not path.exists(vocab_path):
 			
 			# return a single list of tokens
 			def flatten_token(batch):
-				return [token for sentence in batch['post_tokens'] for token in sentence]
+				return [token for sentence in batch['text_tokens'] for token in sentence]
 			
-			train_set = HateXPlain(root=self.cache_path, split='train', n_data=self.n_data)
+			train_set = YelpHat(root=self.cache_path, split='train', n_data=self.n_data)
 			
 			# build vocab from train set
 			dp = train_set.batch(self.batch_size).map(self.list2dict).map(flatten_token)
@@ -304,7 +292,7 @@ class LitData(pl.LightningDataModule):
 		log.info(f'Vocab size: {len(self.vocab)}')
 		
 		# Clean cache
-		HateXPlain.clean_cache(root=self.cache_path)
+		YelpHat.clean_cache(root=self.cache_path)
 		
 		# predefined processing mapper for setup
 		self.text_transform = T.Sequential(
@@ -312,12 +300,12 @@ class LitData(pl.LightningDataModule):
 			T.ToTensor(padding_value=self.vocab[PAD_TOK])
 		)
 		
-		self.rationale_transform = T.Sequential(
+		self.ham_transform = T.Sequential(
 			T.ToTensor(padding_value=0)
 		)
 		
 		self.label_transform = T.Sequential(
-			T.LabelToIndex(['normal', 'hatespeech', 'offensive']),
+			T.LabelToIndex(['0', '1']),
 			T.ToTensor()
 		)
 	
@@ -326,12 +314,11 @@ class LitData(pl.LightningDataModule):
 		
 		# called on every GPU
 		if stage == 'fit' or stage is None:
-			self.train_set = HateXPlain(split='train', **dataset_kwargs)
-			self.val_set = HateXPlain(split='val', **dataset_kwargs)
+			self.train_set = YelpHat(split='train', **dataset_kwargs)
+			self.val_set = YelpHat(split='val', **dataset_kwargs)
 		
 		if stage == 'test' or stage is None:
-			self.test_set = HateXPlain(split='test', **dataset_kwargs)
-		return DataLoader(self.train_set, batch_size=self.batch_size, shuffle=True, collate_fn=self.collate, num_workers=self.num_workers)
+			self.test_sets = {key: YelpHat(split=key, **dataset_kwargs) for key in ['yelp50', 'yelp100', 'yelp200']}
 	
 	def train_dataloader(self):
 		return DataLoader(self.train_set, batch_size=self.batch_size, shuffle=False, collate_fn=self.collate, num_workers=self.num_workers)
@@ -340,7 +327,11 @@ class LitData(pl.LightningDataModule):
 		return DataLoader(self.val_set, batch_size=self.batch_size, shuffle=False, collate_fn=self.collate, num_workers=self.num_workers)
 	
 	def test_dataloader(self):
-		return DataLoader(self.test_set, batch_size=self.batch_size, shuffle=False, collate_fn=self.collate, num_workers=self.num_workers)
+		loader_kwargs = dict(batch_size=self.batch_size, shuffle=False, collate_fn=self.collate, num_workers=self.num_workers)
+		#loaders = {dataset_name : DataLoader(dataset, **loader_kwargs) for dataset_name, dataset in self.test_sets.items()}
+		loaders = [ DataLoader(dataset, **loader_kwargs) for dataset_name, dataset in self.test_sets.items()]
+		#return CombinedLoader(loaders, mode="max_size_cycle") # Run multiple test set in parallel
+		return loaders
 	
 	## ======= PRIVATE SECTIONS ======= ##
 	def collate(self, batch):
@@ -348,12 +339,12 @@ class LitData(pl.LightningDataModule):
 		batch = self.list2dict(batch)
 		
 		b = {
-			'post_tokens': self.text_transform(batch['post_tokens']),
-			'rationale': self.rationale_transform(batch['rationale']),
+			'text_tokens': self.text_transform(batch['text_tokens']),
+			'ham': self.ham_transform(batch['ham']),
 			'label': self.label_transform(batch['label'])
 		}
 		
-		b['padding_mask'] = b['post_tokens'] == self.vocab[PAD_TOK]
+		b['padding_mask'] = b['text_tokens'] == self.vocab[PAD_TOK]
 		
 		return b
 	
@@ -420,15 +411,17 @@ def parse_argument(prog: str = __name__, description: str = 'Experimentation on 
 	parser.add_argument('--d_hidden_lstm', type=int, default=-1)
 	parser.add_argument('--n_lstm', type=int, default=1)
 	
-	params = vars(parser.parse_args())
+	# Regularizer
+	parser.add_argument('--lambda_entropy', type=float, default=0., help='multiplier for entropy')
+	
+	params = parser.parse_args()
 	print('=== Parameters ===')
-	print(json.dumps(params, indent=4))
+	print(json.dumps(vars(params), indent=4))
 	
 	# If data not provided, automatically get from '<cache>/dataset'
-	params['data'] = params.get('data', path.join(params['cache'], 'dataset'))
-	params['mode'] = params['mode'].lower()
-	params = {k: v for k, v in params.items() if v is not None}
-	env.disable_tqdm = params.get('OAR_ID', None) is not None
+	params.mode = params.mode.lower()
+	# params = {k: v for k, v in params.items() if v is not None}
+	env.disable_tqdm = params.OAR_ID is not None
 	return params
 
 # const for mode
@@ -436,56 +429,63 @@ M_EXP = 'exp'
 M_DEV = 'dev'
 
 if __name__ == '__main__':
+	
 	params = parse_argument()
 	
+	DATA_CACHE = path.join(params.cache, 'dataset')
+	MODEL_CACHE = path.join(params.cache, 'models')
+	LOGS_CACHE = path.join(params.cache, 'logs')
 	
-	init_logging(cache_path=params['cache'], color=not params['disable_log_color'])
-	
-	dataset_cache = path.join(params['cache'], 'dataset')
-	models_cache = path.join(params['cache'], 'models')
+	# init logging
+	if params.mode == M_EXP:
+		init_logging(cache_path=LOGS_CACHE, color=False, experiment=params.name, version=params.version)
+	else:
+		init_logging(color=True)
 	
 	dm = LitData(
-		cache_path=dataset_cache,
-		batch_size=params['batch_size'],
-		num_workers=params['num_workers'],
-		n_data=params['n_data']
+		cache_path=DATA_CACHE,
+		batch_size=params.batch_size,
+		num_workers=params.num_workers,
+		n_data=params.n_data
 	)
 	
 	# prepare data here before going to multiprocessing
 	dm.prepare_data()
-	model = LitModel(cache_path=models_cache,
-	                 mode=params['mode'],
+	model = LitModel(cache_path=MODEL_CACHE,
+	                 mode=params.mode,
 	                 vocab=dm.vocab,
-	                 pretrained_vectors=params['vectors'],
-	                 n_lstm=params['n_lstm'],
-	                 d_hidden_lstm=params['d_hidden_lstm'],
-	                 d_embedding=params['d_embedding']
+	                 lambda_entropy=params.lambda_entropy,
+	                 pretrained_vectors=params.vectors,
+	                 n_lstm=params.n_lstm,
+	                 d_hidden_lstm=params.d_hidden_lstm,
+	                 d_embedding=params.d_embedding
 	                 )
 	
 	# call back
-	early_stopping = cb.EarlyStopping('val_/loss', patience=5, verbose=params['mode'] != M_EXP, mode='min')  # stop if no improvement withing 10 epochs
+	early_stopping = cb.EarlyStopping('VAL/loss', patience=5, verbose=params.mode != M_EXP,
+	                                  mode='min')  # stop if no improvement withing 10 epochs
 	model_checkpoint = cb.ModelCheckpoint(
 		filename='best',
-		monitor='val_/loss', mode='min',  # save the minimum val_loss
+		monitor='VAL/loss', mode='min',  # save the minimum val_loss
 	)
 	
 	# logger
 	logger = TensorBoardLogger(
-		save_dir=path.join(params['cache'], 'lightning_logs'),
-		name=params.get('name', str(model)),
-		version=params.get('version', None),
-		default_hp_metric=False # deactivate hp_metric on tensorboard visualization
+		save_dir=LOGS_CACHE,
+		name=params.name,
+		version=params.version,
+		default_hp_metric=False  # deactivate hp_metric on tensorboard visualization
 	)
 	
 	trainer = pl.Trainer(
-		max_epochs=params['epoch'],
-		accelerator=params['accelerator'],  # auto use gpu
-		enable_progress_bar=params['mode'] != M_EXP,  # not show progress bar when experimentation
+		max_epochs=params.epoch,
+		accelerator=params.accelerator,  # auto use gpu
+		enable_progress_bar=params.mode != M_EXP,  # not show progress bar when experimentation
 		log_every_n_steps=1,
-		default_root_dir=params['cache'],
+		default_root_dir=LOGS_CACHE,
 		logger=logger,
-		strategy=params.get('strategy', None),
-		# fast_dev_run=params['mode'] == M_DEV,
+		strategy=params.strategy,
+		# fast_dev_run=params.mode'] == M_DEV,
 		callbacks=[early_stopping, model_checkpoint],
 		auto_scale_batch_size=True,
 		detect_anomaly=True
@@ -497,10 +497,9 @@ if __name__ == '__main__':
 	dm.setup(stage='test')
 	performance = trainer.test(
 		ckpt_path='best',
-	    datamodule=dm
+		datamodule=dm
 	)
 	log.info(performance)
 	logger.log_metrics(performance[0])
 	
 	print('Done')
-	

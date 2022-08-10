@@ -1,5 +1,6 @@
 /.cache/
 */**/.cache/
+*/**/__pycache__/
 */**/.ipynb_checkpoints/
 /src/*.sh
 .DS_Store
