@@ -6,15 +6,18 @@ import warnings
 
 class Attention(nn.MultiheadAttention):
 	
-	def __init__(self, dim:int=-1, attention_raw:bool = False, **kwargs):
+	def __init__(self, attention_raw:bool = False, **kwargs):
 		super(Attention, self).__init__(**kwargs)
 		self.attention_raw = attention_raw
 
 	
 	def forward(self, query: Tensor, key: Tensor, value: Tensor, key_padding_mask: Optional[Tensor] = None, need_weights: bool = True, attn_mask: Optional[Tensor] = None) -> Tuple[Tensor, Optional[Tensor]]:
-		
+		is_batched = query.dim() == 3
+		if self.batch_first and is_batched:
+			query, key, value = [x.transpose(1, 0) for x in (query, key, value)]
+			
 		if not self._qkv_same_embed_dim:
-			return multi_head_attention_forward(
+			attn_output, attn_output_weights = multi_head_attention_forward(
 				# specialized
 				query, key, value, self.embed_dim, self.num_heads,
 				self.in_proj_weight, self.in_proj_bias,
@@ -27,7 +30,7 @@ class Attention(nn.MultiheadAttention):
 				q_proj_weight=self.q_proj_weight, k_proj_weight=self.k_proj_weight,
 				v_proj_weight=self.v_proj_weight)
 		else:
-			return multi_head_attention_forward(
+			attn_output, attn_output_weights = multi_head_attention_forward(
 				# specialized
 				query, key, value, self.embed_dim, self.num_heads,
 				self.in_proj_weight, self.in_proj_bias,
@@ -37,6 +40,11 @@ class Attention(nn.MultiheadAttention):
 				training=self.training,
 				key_padding_mask=key_padding_mask, need_weights=need_weights,
 				attn_mask=attn_mask)
+		
+		if self.batch_first and is_batched:
+			return attn_output.transpose(1, 0), attn_output_weights
+		else:
+			return attn_output, attn_output_weights
 	
 		
 def multi_head_attention_forward(

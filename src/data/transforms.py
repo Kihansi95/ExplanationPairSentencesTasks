@@ -3,6 +3,8 @@ from typing import Union
 import spacy
 from torch.nn import Module
 
+from modules.metrics import entropy
+
 
 class SpacyTokenizerTransform(Module):
 	"""
@@ -55,3 +57,16 @@ class PaddingToken(Module):
 			text[i] += [self.pad_value] * txt_lens[i]
 		return text
 	
+	
+class EntropyTransform(Module):
+	
+	def __init__(self, ):
+		super(EntropyTransform, self).__init__()
+	
+	def forward(self, rationale, padding_mask):
+		# transform into uniform distribution:
+		rationale = rationale / rationale.sum(axis=1).unsqueeze(1)
+		return entropy(rationale, padding_mask)
+	
+	def __str__(self):
+		return 'entropy_transform'

@@ -15,11 +15,12 @@ from data import ArgumentError
 from modules.logger import log
 
 DATASET_NAME = 'hatexplain'
+NUM_CLASS = 3
 
 _EXTRACTED_FILES = {
-	'train': 'train.csv',
-	'val': 'val.csv',
-	'test': 'test.csv',
+	'train': 'train.parquet',
+	'val': 'val.parquet',
+	'test': 'test.parquet',
 }
 
 
@@ -35,22 +36,21 @@ def download_format_dataset(root: str, split: str):
 	if path.basename(root) != DATASET_NAME:
 		root = path.join(root, DATASET_NAME)
 	
-	csv_path = path.join(root, _EXTRACTED_FILES[split])
-	if path.exists(csv_path):
-		return csv_path
+	parquet_path = path.join(root, _EXTRACTED_FILES[split])
+	if path.exists(parquet_path):
+		return parquet_path
 	
 	huggingface_split = 'validation' if split == 'val' else split
 	
 	# download the dataset
 	dataset = load_dataset(DATASET_NAME, split=huggingface_split, cache_dir=root)
 	
-	
 	# Correct the example
-	df = _reformat_csv(dataset, split)
-	df.to_csv(csv_path, index=False, encoding='utf-8')
-	log.info(f'Process {split} and saved at {csv_path}')
+	df = _reformat_dataframe(dataset, split)
+	df.to_parquet(parquet_path)
+	log.info(f'Process {split} and saved at {parquet_path}')
 	
-	return csv_path
+	return parquet_path
 	
 
 def clean_cache(root: str):
@@ -59,7 +59,7 @@ def clean_cache(root: str):
 		if fname.endswith('.lock'): os.remove(os.path.join(root, fname))
 	
 	
-def _reformat_csv(dataset: datasets.Dataset, split):
+def _reformat_dataframe(dataset: datasets.Dataset, split):
 	df = dataset.to_pandas()
 	
 	# Correct 1 example in train set
@@ -104,14 +104,14 @@ class HateXPlain(MapDataPipe):
 		root = self.root(root)
 		self.split = split
 		
-		# download and prepare csv file if not exist
-		self.csv_path = download_format_dataset(root=root, split=split)
+		# download and prepare parquet file if not exist
+		self.parquet_path = download_format_dataset(root=root, split=split)
 		
-		col_type = {'label': 'category'}
-		col_convert = {'post_tokens': pd.eval, 'rationale': pd.eval}
+		# load the parquet file to data
+		self.data = pd.read_parquet(self.parquet_path)
 		
-		# load the csv file to data
-		self.data = pd.read_csv(self.csv_path, dtype=col_type, converters=col_convert)
+		self.data['post_tokens'] = self.data['post_tokens'].apply(lambda x: x.tolist())
+		self.data['rationale'] = self.data['rationale'].apply(lambda x: x.tolist())
 		
 		# if n_data activated, reduce the dataset equally for each class
 		if n_data > 0:

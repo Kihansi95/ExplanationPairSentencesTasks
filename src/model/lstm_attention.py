@@ -8,7 +8,7 @@ from modules.logger import log
 
 class LstmAttention(nn.Module):
 	
-	def __init__(self, d_embedding: int, padding_idx: int, vocab_size:int=None, pretrained_embedding=None, **kwargs):
+	def __init__(self, d_embedding: int, padding_idx: int, vocab_size:int=None, pretrained_embedding=None, n_class=3, **kwargs):
 		"""
 		Delta model has a customized attention layers
 		"""
@@ -20,7 +20,7 @@ class LstmAttention(nn.Module):
 		# embedding layers
 		freeze = kwargs.get('freeze', False)
 		
-		self.n_classes = kwargs.get('n_class', 3)
+		self.n_classes = n_class
 		dropout = kwargs.get('dropout', 0.)
 		
 		num_heads = kwargs.get('num_heads', 1)
@@ -41,7 +41,7 @@ class LstmAttention(nn.Module):
 		                    bidirectional=True, dropout=(n_lstm > 1) * dropout)
 		
 		# Bidirectional
-		d_out_lstm = d_hidden_lstm * 2
+		d_out_lstm = d_in_lstm * 2
 		
 		d_attn = kwargs.get('d_attn', d_out_lstm)
 		
@@ -49,11 +49,11 @@ class LstmAttention(nn.Module):
 		#                                        kdim=d_attn, vdim=d_attn)
 		attention_raw = kwargs.get('attention_raw', False)
 		self.attention = Attention(embed_dim=d_out_lstm, num_heads=num_heads, dropout=dropout, kdim=d_attn, vdim=d_attn,
-		                                 attention_raw=attention_raw)
+		                           batch_first=True, attention_raw=attention_raw)
 		d_context = d_out_lstm
 		
 		d_fc_out = kwargs.get('d_fc_out', d_context)
-		self.fc_squeeze = FullyConnected(d_context, d_fc_out, activation=activation, dropout=dropout)
+		self.fc_squeeze = FullyConnected(d_context + d_out_lstm, d_fc_out, activation=activation, dropout=dropout)
 		
 		n_fc_out = kwargs.get('n_fc_out', 0)
 		self.fc_out = nn.ModuleList([
@@ -66,6 +66,10 @@ class LstmAttention(nn.Module):
 		)
 		
 		self.softmax = nn.Softmax(dim=1)
+		
+		# Constants
+		self.d = 1 + int(self.lstm.bidirectional)
+		
 	
 	def forward(self, **input_):
 		"""
@@ -89,21 +93,23 @@ class LstmAttention(nn.Module):
 		self.lstm.flatten_parameters()  # flatten parameters for data parallel
 		h_seq, (h_last, _) = self.lstm(x)
 		
-		n_direction = 2
-		h_last = h_last[-n_direction:].permute(1, 0, 2)  # size() == (N, n_direction, d_hidden_lstm)
+		h_last = h_last[-self.d:].permute(1, 0, 2)  # size() == (N, n_direction, d_hidden_lstm)
 		h_last = h_last.reshape(h_last.size(0), 1, -1)  # size() == (N, 1, n_direction * d_hidden_lstm)
 		
 		# Reswapping dimension for multihead attention
-		h_last = h_last.permute(1, 0, 2)  # (1, N, d_out_lstm)
-		h_seq = h_seq.permute(1, 0, 2)  # (L, N, d_hidden_lstm)
+		#h_last = h_last.permute(1, 0, 2)  # (1, N, d_out_lstm)
+		#h_seq = h_seq.permute(1, 0, 2)  # (L, N, d_hidden_lstm)
 		
 		# Compute attention
 		# context.size() == (N, 1, d_attention)
 		# attn_weight.size() == (N, 1, L)
 		context, attn_weights = self.attention(query=h_last, key=h_seq, value=h_seq, key_padding_mask=mask)
-		context = context.squeeze(dim=0)
+		context = context.squeeze(dim=1)
+		h_last = h_last.squeeze(dim=1)
+		# x = context.squeeze(dim=1)
 
-		x = self.fc_squeeze(context)  # (N, d_fc_out)
+		x = torch.cat([context, h_last], dim=1)
+		x = self.fc_squeeze(x)  # (N, d_fc_out)
 		
 		for fc in self.fc_out:
 			x = fc(x)  # (N, d_fc_out) unchanged

@@ -21,10 +21,21 @@ def yelp_hat_ham(html, spacy_model):
 	
 	return ham
 
-def yelp_hat_token(html, spacy_model):
+def yelp_hat_token(html, spacy_model, lemma=True, lower=True):
 	soup = BeautifulSoup(html, 'html.parser')
 	tags = [str(tag.string) for tag in soup.find_all('span') if tag.string is not None]
-	tokens = [str(tk.text) for doc in spacy_model.pipe(tags, disable=['ner', "parser"]) for tk in doc]
+	
+	tokens = [tk for doc in spacy_model.pipe(tags, disable=['ner', "parser"]) for tk in doc]
+	
+	if lemma:
+		tokens = [tk.lemma_ for tk in tokens]
+		
+	if lower:
+		tokens = [tk.lower() for tk in tokens]
+	
+	if not lemma and not lower:
+		tokens = [tk.text for tk in tokens]
+	
 	return tokens
 
 

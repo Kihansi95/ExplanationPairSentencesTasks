@@ -10,32 +10,31 @@ from modules.logger import log
 
 class PairLstmAttention(Net):
 	
-	def __init__(self, d_embedding: int, pretrained_embedding=None, **kwargs):
+	def __init__(self, d_embedding: int, padding_idx: int, vocab_size:int=None, pretrained_embedding=None, n_class=3, **kwargs):
 		"""
 		Delta model has a customized attention layers
 		"""
 		
 		super(PairLstmAttention, self).__init__()
-		
 		# Get model parameters
+		assert not(vocab_size is None and pretrained_embedding is None), 'Provide either vocab size or pretrained embedding'
 		
 		# embedding layers
 		freeze = kwargs.get('freeze', False)
 		
-		self.n_classes = kwargs.get('n_class', 3)
+		self.n_classes = n_class
 		dropout = kwargs.get('dropout', 0.)
 		self.bidirectional = True  # force to default
-		
 		
 		num_heads = kwargs.get('num_heads', 1)
 		activation = kwargs.get('activation', 'relu')
 		
 		if pretrained_embedding is None:
 			log.debug(f'Construct embedding from zero')
-			self.embedding = nn.Embedding(len(vocab), d_embedding, padding_idx=vocab['[pad]'])
+			self.embedding = nn.Embedding(len(vocab), d_embedding, padding_idx=padding_idx)
 		else:
 			log.debug(f'Load vector from pretraining')
-			self.embedding = nn.Embedding.from_pretrained(pretrained_embedding, freeze=freeze, padding_idx=vocab['[pad]'])
+			self.embedding = nn.Embedding.from_pretrained(pretrained_embedding, freeze=freeze, padding_idx=padding_idx)
 		
 		# LSTM block
 		d_in_lstm = d_embedding

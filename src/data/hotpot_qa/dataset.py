@@ -30,6 +30,7 @@ _SPLIT_MAPPING = {
 
 _VAL_SPLIT = 0.3
 
+
 def download_format_dataset(root: str, split: str, n_data: int = -1, subset='distractor'):
 	"""
 	Download and reformat dataset of eSNLI

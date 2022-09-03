@@ -15,11 +15,11 @@ class IoU(_Loss):
         jacc_loss: the Jaccard loss.
     """
 	
-	
-	def __init__(self, eps:float=1e-7, threshold=0.5, size_average=None, reduce=None, reduction: str = 'mean',):
+	def __init__(self, eps:float=1e-7, threshold=0.5, normalize=None, size_average=None, reduce=None, reduction: str = 'mean',):
 		super(IoU, self).__init__(size_average, reduce, reduction)
 		self.eps = eps
 		self.threshold = threshold
+		self.normalize = normalize
 		
 	def forward(self, input: Tensor, target: Tensor) -> Tensor:
 		"""
@@ -27,6 +27,11 @@ class IoU(_Loss):
 			input ():  a tensor of shape [B, C, H, W]. Corresponds to the raw output or logits of the model.
 			target (): a tensor of shape [B, H, W] or [B, 1, H, W].
 		"""
+		if self.normalize is None:
+			self.normalize = (input > 1.).any()
+		
+		if self.normalize:
+			input = torch.sigmoid(input)
 		
 		#input = (input >= self.threshold).type(int)
 		intersection = input.dot(target.float())
