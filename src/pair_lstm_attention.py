@@ -5,25 +5,24 @@ from argparse import ArgumentParser
 from typing import Union
 import json
 
-from pytorch_lightning.loggers import TensorBoardLogger
+from os import path
 
+import pytorch_lightning as pl
+import torch
+from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning import callbacks as cb
 
 from torch import optim, nn
-
 from torchtext.vocab.vectors import pretrained_aliases as pretrained
 
 import torchmetrics as m
 
-from data_module.hatexplain import HateXPlainDM
-from data_module.yelp_hat import *
+from data_module.constant import *
+from data_module.esnli import ESNLIDM
 
-from lstm_attention_hatexplain import PAD_TOK
 from model.pair_lstm_attention import PairLstmAttention
 from modules.logger import log, init_logging
 from modules import metrics, env, rescale, INF
-
-from model.lstm_attention import LstmAttention
 from modules.loss import IoU
 
 
@@ -42,7 +41,7 @@ class LitModel(pl.LightningModule):
 		self.data = data
 		
 		if pretrained_vectors is not None and isinstance(pretrained_vectors, str):
-			vector_path = path.join(cache_path, '.vector_cache')
+			vector_path = path.join(cache_path, '..', '.vector_cache')
 			vectors = pretrained[pretrained_vectors](cache=vector_path)
 			pretrained_vectors = [vectors[token] for token in vocab.get_itos()]
 			pretrained_vectors = torch.stack(pretrained_vectors)
@@ -67,6 +66,8 @@ class LitModel(pl.LightningModule):
 			'y:accuracy': m.Accuracy(num_classes=num_class, multiclass=True),
 			'y:fscore': m.F1Score(num_classes=num_class, multiclass=True)
 		})
+		
+		m.AUC
 		
 		with warnings.catch_warnings():
 			template_attention_metrics = m.MetricCollection({
@@ -95,8 +96,13 @@ class LitModel(pl.LightningModule):
 			phase: m.MeanMetric() for phase in PHASES
 		})
 		
-	def forward(self, ids, mask):
-		return self.model(ids=ids, mask=mask)
+	def forward(self, premise_ids, hypothesis_ids, premise_padding, hypothesis_padding):
+		return self.model(
+			premise_ids=premise_ids,
+			hypothesis_ids=hypothesis_ids,
+			premise_padding=premise_padding,
+			hypothesis_padding=hypothesis_padding
+		)
 
 	def configure_optimizers(self):
 		optimizer = optim.Adam(self.parameters())
@@ -108,12 +114,24 @@ class LitModel(pl.LightningModule):
 		y_true = batch['y_true']
 		padding_mask = batch['padding_mask']
 		a_true = batch['a_true']
-		y_hat, a_hat = self(ids=batch['token_ids'], mask=padding_mask)
+		
+		y_hat, a_hat = self(
+			premise_ids=batch['premise_ids'],
+			hypothesis_ids=batch['hypothesis_ids'],
+			premise_padding=padding_mask['premise'],
+			hypothesis_padding=padding_mask['hypothesis'])
+		
 		loss_classif = self.loss_fn(y_hat, y_true)
-		loss_entropy = metrics.entropy(a_hat, padding_mask, normalize=True, average='micro')
+		
+		loss_entropy = [metrics.entropy(a_hat[s], padding_mask[s], normalize=True, average='micro') for s in a_hat]
+		loss_entropy = 0.5 * sum(loss_entropy)
 		
 		# Sigmoid for IoU loss
-		flat_a_hat, flat_a_true = self.flatten_attention(a_hat=a_hat, a_true=a_true, condition=y_true > 0, pad_mask=padding_mask, normalize='sigmoid')
+		flat_a_hat = [self.flatten_attention(attention=a_hat[s], condition=y_true > 0, pad_mask=padding_mask[s], normalize='sigmoid') for s in a_hat]
+		flat_a_true = [self.flatten_attention(attention=a_true[s], condition=y_true > 0, pad_mask=padding_mask[s]) for s in a_true]
+		
+		flat_a_hat = torch.cat(flat_a_hat)
+		flat_a_true = torch.cat(flat_a_true)
 		
 		if flat_a_true is None:
 			loss_supervise = torch.tensor(0.).type_as(loss_classif)
@@ -130,13 +148,19 @@ class LitModel(pl.LightningModule):
 	
 	def test_step(self, batch, batch_idx, dataloader_idx=None):
 
-		y_hat, attentions = self(ids=batch['token_ids'], mask=batch['padding_mask'])
+		y_true = batch['y_true']
+		padding_mask = batch['padding_mask']
+		y_hat, a_hat = self(
+			premise_ids=batch['premise_ids'],
+			hypothesis_ids=batch['hypothesis_ids'],
+			premise_padding=padding_mask['premise'],
+			hypothesis_padding=padding_mask['hypothesis'])
 		
 		return {'y_hat': y_hat,
-		        'y_true': batch['y_true'],
-		        'a_hat': attentions.detach(),
+		        'y_true': y_true,
+		        'a_hat': a_hat,
 		        'a_true': batch['a_true'],
-		        'padding_mask': batch['padding_mask']}
+		        'padding_mask': padding_mask}
 	
 	def step_end(self, outputs, stage: str = 'TEST'):
 		
@@ -144,12 +168,16 @@ class LitModel(pl.LightningModule):
 		y_hat, y_true = outputs['y_hat'], outputs['y_true']
 		padding_mask = outputs['padding_mask']
 		
-		flat_a_hat, flat_a_true = self.flatten_attention(a_hat=a_hat, a_true=a_true, condition=y_true > 0, pad_mask=padding_mask, normalize='softmax_rescale')
+		flat_a_hat = [self.flatten_attention(attention=a_hat[s], condition=y_true > 0, pad_mask=padding_mask[s], normalize='softmax_rescale') for s in a_hat]
+		flat_a_true = [self.flatten_attention(attention=a_true[s], condition=y_true > 0, pad_mask=padding_mask[s]) for s in a_true]
+		
+		flat_a_hat = torch.cat(flat_a_hat)
+		flat_a_true = torch.cat(flat_a_true)
 		
 		# log attentions metrics
-		if flat_a_hat is not None and a_hat.size(0) > 0:
+		if flat_a_hat.size(0) > 0:
 			metric_a = self.attention_metrics[stage](flat_a_hat, flat_a_true)
-			metric_a['a:entropy'] = self.entropy_metric[stage](a_hat, padding_mask)
+			metric_a['a:entropy'] = 0.5 * sum([metrics.entropy(a_hat[s], padding_mask[s], normalize=True, average='micro') for s in a_hat])
 			metric_a = {f'{stage}/{k}': v.item() for k, v in metric_a.items()}  # put metrics within same stage under the same folder
 			self.log_dict(metric_a, prog_bar=True)
 		
@@ -173,7 +201,8 @@ class LitModel(pl.LightningModule):
 	def test_step_end(self, outputs):
 		return self.step_end(outputs, stage='TEST')
 	
-	def flatten_attention(self, a_hat, a_true, pad_mask, condition=None, normalize:str =''):
+	# TODO
+	def flatten_attention(self, attention, pad_mask, condition=None, normalize:str =''):
 		"""
 		Filter attention
 		Args:
@@ -188,29 +217,25 @@ class LitModel(pl.LightningModule):
 
 		"""
 		if condition is None:
-			condition = torch.ones(a_hat.size(0)).type(torch.bool)
+			condition = torch.ones(attention.size(0)).type(torch.bool)
 		
 		if (~condition).all():
-			return None, None
+			return torch.tensor([])
 		
 		# Filter by condition on y
-		a_hat = a_hat[condition]
-		a_true = a_true[condition]
+		attention = attention[condition]
 		pad_mask = pad_mask[condition]
 		
 		# Ir normalize specify:
 		if normalize == 'sigmoid':
-			a_hat = torch.sigmoid(a_hat)
+			attention = torch.sigmoid(attention)
 		if 'softmax' in normalize:
-			a_hat = torch.softmax(a_hat + pad_mask.float() * -INF, dim=1)
+			attention = torch.softmax(attention + pad_mask.float() * -INF, dim=1)
 		if 'rescale' in normalize:
-			a_hat = rescale(a_hat, pad_mask)
+			attention = rescale(attention, pad_mask)
 			
 		# Filter by mask
-		flat_a_hat = a_hat[~pad_mask]
-		flat_a_true = a_true[~pad_mask]
-		
-		return flat_a_hat, flat_a_true
+		return attention[~pad_mask]
 	
 	
 	def on_train_start(self):   
@@ -345,7 +370,7 @@ if __name__ == '__main__':
 			n_data=args.n_data)
 	
 	if args.data == 'esnli':
-		dm = eSNLIDM(**dm_kwargs)
+		dm = ESNLIDM(**dm_kwargs)
 	else:
 		log.error(f'Unrecognized dataset: {args.data}')
 		exit(1)

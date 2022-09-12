@@ -12,11 +12,9 @@ from os import path
 
 from data.transforms import EntropyTransform
 from data.yelp_hat.spacy_pretok_dataset import SpacyPretokenizeYelpHat
+from data_module.constant import *
 from modules import env
 from modules.logger import log
-
-PAD_TOK = '<pad>'
-UNK_TOK = '<unk>'
 
 class YelpHatDM(pl.LightningDataModule):
 	
@@ -92,6 +90,7 @@ class YelpHatDM(pl.LightningDataModule):
 		)
 		
 		self.entropy_transform = EntropyTransform()
+		
 	
 	def setup(self, stage: str = None):
 		dataset_kwargs = dict(root=self.cache_path, n_data=self.n_data)

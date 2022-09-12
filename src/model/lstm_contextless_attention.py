@@ -6,14 +6,14 @@ from model.layers.fully_connected import FullyConnected
 from modules.logger import log
 
 
-class LstmAttention(nn.Module):
+class LstmContextlessAttention(nn.Module):
 	
 	def __init__(self, d_embedding: int, padding_idx: int, vocab_size:int=None, pretrained_embedding=None, n_class=3, **kwargs):
 		"""
 		Delta model has a customized attention layers
 		"""
 		
-		super(LstmAttention, self).__init__()
+		super(LstmContextlessAttention, self).__init__()
 		# Get model parameters
 		assert not(vocab_size is None and pretrained_embedding is None), 'Provide either vocab size or pretrained embedding'
 		
@@ -75,7 +75,8 @@ class LstmAttention(nn.Module):
 		"""
 
 		Args:
-			inputs: ( input1 (N, L, h) , input2(N, L, h), optional: mask1, optional: mask2)
+			ids: token ids
+			mask: padding mask
 
 		Returns:
 
@@ -84,26 +85,24 @@ class LstmAttention(nn.Module):
 		# L = sequence_length
 		# h = hidden_dim = embedding_size
 		# C = n_class
-		x = input_['ids']
+		ids = input_['ids']
 		mask = input_.get('mask', torch.zeros_like(x))
 		
 		# Reproduce hidden representation from LSTM
-		x = self.embedding(x)
+		word_vec = self.embedding(ids)
 		
 		self.lstm.flatten_parameters()  # flatten parameters for data parallel
-		h_seq, (h_last, _) = self.lstm(x)
+		h_seq, (h_last, _) = self.lstm(word_vec)
 		
 		h_last = h_last[-self.d:].permute(1, 0, 2)  # size() == (N, n_direction, d_hidden_lstm)
 		h_last = h_last.reshape(h_last.size(0), 1, -1)  # size() == (N, 1, n_direction * d_hidden_lstm)
 		
 		# Reswapping dimension for multihead attention
-		#h_last = h_last.permute(1, 0, 2)  # (1, N, d_out_lstm)
-		#h_seq = h_seq.permute(1, 0, 2)  # (L, N, d_hidden_lstm)
 		
 		# Compute attention
 		# context.size() == (N, 1, d_attention)
 		# attn_weight.size() == (N, 1, L)
-		context, attn_weights = self.attention(query=h_last, key=h_seq, value=h_seq, key_padding_mask=mask)
+		context, attn_weights = self.attention(query=h_last, key=word_vec, value=h_seq, key_padding_mask=mask)
 		context = context.squeeze(dim=1)
 		h_last = h_last.squeeze(dim=1)
 		# x = context.squeeze(dim=1)
@@ -169,7 +168,7 @@ if __name__ == '__main__':
 	
 	y = torch.tensor(y, dtype=torch.long)
 	
-	model = LstmAttention(d_in=300, dropout=0, d_fc_lstm=-1, d_fc_attentiion=-1, d_context=-1, n_class=3, n_fc_out=0)
+	model = LstmContextlessAttention(d_in=300, dropout=0, d_fc_lstm=-1, d_fc_attentiion=-1, d_context=-1, n_class=3, n_fc_out=0)
 	
 	model.train()
 	

@@ -1,10 +1,10 @@
 import torch
 from torch import Tensor
 from torchmetrics import Metric
+from torchmetrics.utilities.enums import AverageMethod
 
 from modules.metrics.utils import batch_dot
 
-_MICRO = 'micro'
 _SUM = 'sum'
 
 class Entropy(Metric):
@@ -33,10 +33,12 @@ class Entropy(Metric):
 		if self.average == None:
 			self.cumulate_entropy += batch_entropy.sum()
 			self.n_sample += preds.size(0)
+			
 		elif self.average == _SUM:
 			self.cumulate_entropy += batch_entropy
 			self.n_sample += preds.size(0)
-		elif self.average == _MICRO:
+			
+		elif self.average == AverageMethod.MICRO:
 			self.cumulate_entropy += batch_entropy
 			self.n_sample += 1
 	
@@ -69,9 +71,8 @@ def entropy(preds: Tensor, mask: Tensor=None, normalize:bool=None, average:str=N
 	log_length = torch.log(mask.sum(axis=1)).float()
 	
 	entropies = batch_dot(preds, log_preds) / log_length
-	# entropies = batch_dot(preds, log_preds)
 
-	if average == _MICRO:
+	if average == AverageMethod.MICRO:
 		entropies = entropies.mean()
 	elif average == _SUM:
 		entropies = entropies.sum()

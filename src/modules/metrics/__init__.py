@@ -1,3 +1,6 @@
 from .entropy import *
 from .jaccard import *
-__all__ = ['entropy', 'jaccard']
+from .auprecision import *
+from .aurecall import *
+
+__all__ = ['entropy', 'jaccard', 'auprecision', 'aurecall']

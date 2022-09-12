@@ -68,9 +68,12 @@ class HeuristicTransform(Module):
 		vectors = {}
 		mask = {}
 		heuristic = {}
+		padding_mask = {}
 		
 		for side, texts in batch.items():
 			docs = list(self.sm.pipe(texts))
+			
+			padding = [torch.tensor([1] * len(d)) for d in docs]
 			
 			# POS-tag mask: True on informative tokens
 			# pos = [[tk.pos_ for tk in d] for d in docs]
@@ -83,6 +86,7 @@ class HeuristicTransform(Module):
 					pos_mask[idx] = torch.tensor([True for _ in docs[idx]])  # Uniform attention
 			
 			pos_mask = pad_sequence(pos_mask, batch_first=True, padding_value=False)
+			padding = pad_sequence(padding, batch_first=True, padding_value=0)
 			
 			tokens = [[tk.lemma_.lower() for tk in d] for d in docs]
 			v = [self.vectors.get_vecs_by_tokens(tk) for tk in tokens]
@@ -91,6 +95,7 @@ class HeuristicTransform(Module):
 			
 			vectors[side] = v_norm
 			mask[side] = pos_mask
+			padding_mask[side] = padding
 		
 		# similarity matrix
 		similarity = torch.bmm(vectors['premise'], vectors['hypothesis'].transpose(1, 2))
@@ -104,6 +109,9 @@ class HeuristicTransform(Module):
 			heuristic = {k: h.softmax(1) for k, h in heuristic.items()}
 		elif self.normalize == self.N_LOG_SOFTMAX:
 			heuristic = {k: h.log_softmax(1) for k, h in heuristic.items()}
-		
+	
+		for side in batch.keys():
+			heuristic[f'{side}_mask'] = padding_mask[side]
+			
 		return heuristic
 	

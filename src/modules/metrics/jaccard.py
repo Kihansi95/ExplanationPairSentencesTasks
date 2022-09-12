@@ -1,6 +1,7 @@
 import torch
 from torch import Tensor
 from torchmetrics import Metric
+from torchmetrics.utilities.enums import AverageMethod
 
 from modules.metrics.utils import batch_dot
 
@@ -24,21 +25,21 @@ class PowerJaccard(Metric):
 		self.p = power
 		self.average = average
 		
-		if average == 'samples':
+		if average == AverageMethod.SAMPLES:
 			self.add_state("cumulative_iou", default=torch.tensor(0.), dist_reduce_fx="sum")
 			self.add_state("n_sample", default=torch.tensor(0), dist_reduce_fx="sum")
 			
-		if average is None:
+		if average == AverageMethod.NONE:
 			self.add_state("intersection", default=torch.tensor(0.), dist_reduce_fx="sum")
 			self.add_state("union", default=torch.tensor(0.), dist_reduce_fx="sum")
 		
 	def update(self, preds: Tensor, target: Tensor):
 		target = target.float()
-		if self.average is None:
+		if self.average == AverageMethod.NONE:
 			self.intersection = (preds * target).sum()
 			self.union = preds.pow(self.p).sum() + target.pow(self.p).sum() - self.intersection
 		
-		if self.average == 'samples':
+		if self.average == AverageMethod.SAMPLES:
 			batch_intersection = batch_dot(preds, target)
 			batch_union = preds.pow(self.p).sum(dim=-1) + target.pow(self.p).sum(dim=-1) - batch_intersection
 			self.cumulative_iou += (batch_intersection / batch_union).sum()

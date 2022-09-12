@@ -93,9 +93,7 @@ def _reformat_dataframe(dataset: datasets.Dataset, split):
 
 class HateXPlain(MapDataPipe):
 	
-	def __init__(self, split: str = 'train',
-	             root: str = path.join(os.getcwd(), '.cache'),
-	             n_data: int = -1):
+	def __init__(self, split: str = 'train', root: str = path.join(os.getcwd(), '.cache'), n_data: int = -1):
 		
 		# assert
 		if split not in _EXTRACTED_FILES.keys():

@@ -2,21 +2,22 @@ import pickle
 import sys
 
 import pytorch_lightning as pl
+import spacy
 import torch
 from torch.utils.data import DataLoader
-from torchtext.vocab import build_vocab_from_iterator
+from torchtext.vocab import build_vocab_from_iterator, GloVe
 import torchtext.transforms as T
-from data import HateXPlain
 from tqdm import tqdm
 from os import path
 
-from data.hatexplain.dataset import NUM_CLASS
-from data.transforms import EntropyTransform
+from data.esnli.transform_dataset import PretransformedESNLI
+from data.esnli.transforms import HighlightTransform, HeuristicTransform
+from data.transforms import LemmaLowerTokenizerTransform
 from data_module.constant import *
 from modules import env
 from modules.logger import log
 
-class HateXPlainDM(pl.LightningDataModule):
+class ESNLIDM(pl.LightningDataModule):
 	
 	def __init__(self, cache_path, batch_size=8, num_workers=0, n_data=-1):
 		super().__init__()
@@ -25,33 +26,56 @@ class HateXPlainDM(pl.LightningDataModule):
 		# Dataset already tokenized
 		self.n_data = n_data
 		self.num_workers = num_workers
-		self.num_class = NUM_CLASS
+		self.num_class = PretransformedESNLI.NUM_CLASS
+		
+		spacy_model = spacy.load('en_core_web_sm')
+		tokenizer_transform = LemmaLowerTokenizerTransform(spacy_model)
+		hl_transform = T.Sequential( tokenizer_transform, HighlightTransform())
+		heuristic_transform = HeuristicTransform(
+			vectors=GloVe(cache=path.join(cache_path, '..', '.vector_cache')),
+			spacy_model=spacy_model,
+			normalize='log_softmax'
+		)
+		
+		self.transformations = {
+			'premise': tokenizer_transform,
+			'hypothesis': tokenizer_transform,
+			'highlight_premise': hl_transform,
+			'highlight_hypothesis': hl_transform,
+			'heuristic': heuristic_transform,
+		}
+		self.rename_columns = {
+			'premise': 'premise_tokens',
+			'hypothesis': 'hypothesis_tokens',
+			'highlight_premise': 'premise_rationale',
+			'highlight_hypothesis': 'hypothesis_rationale',
+			'heuristic': 'heuristic'
+		}
 	
 	def prepare_data(self):
 		# called only on 1 GPU
 		
 		# download_dataset()
-		dataset_path = HateXPlain.root(self.cache_path)
+		dataset_path = PretransformedESNLI.root(self.cache_path)
 		vocab_path = path.join(dataset_path, f'vocab.pt')
 		
 		for split in ['train', 'val', 'test']:
-			HateXPlain.download_format_dataset(dataset_path, split)
+			PretransformedESNLI.download_format_dataset(dataset_path, split)
 		
 		# build_vocab()
 		if not path.exists(vocab_path):
 			
 			# return a single list of tokens
 			def flatten_token(batch):
-				return [token for sentence in batch['post_tokens'] for token in sentence]
+				return [token for sentence in batch['premise_tokens'] + batch['hypothesis_tokens'] for token in sentence]
 			
-			train_set = HateXPlain(root=self.cache_path, split='train', n_data=self.n_data)
+			train_set = PretransformedESNLI(transformations=self.transformations, column_name=self.rename_columns, root=self.cache_path, split='train', n_data=self.n_data)
 			
 			# build vocab from train set
 			dp = train_set.batch(self.batch_size).map(self.list2dict).map(flatten_token)
 			
 			# Build vocabulary from iterator. We don't know yet how long does it take
-			iter_tokens = tqdm(iter(dp), desc='Building vocabulary', total=len(dp), unit='sents', file=sys.stdout,
-			                   disable=env.disable_tqdm)
+			iter_tokens = tqdm(iter(dp), desc='Building vocabulary', total=len(dp), unit='sents', file=sys.stdout, disable=env.disable_tqdm)
 			if env.disable_tqdm: log.info(f'Building vocabulary')
 			vocab = build_vocab_from_iterator(iterator=iter_tokens, specials=[PAD_TOK, UNK_TOK])
 			# vocab = build_vocab_from_iterator(iter(doc for doc in train_set['post_tokens']), specials=[PAD_TOK, UNK_TOK])
@@ -70,7 +94,7 @@ class HateXPlainDM(pl.LightningDataModule):
 		log.info(f'Vocab size: {len(self.vocab)}')
 		
 		# Clean cache
-		HateXPlain.clean_cache(root=self.cache_path)
+		PretransformedESNLI.clean_cache(root=self.cache_path)
 		
 		# predefined processing mapper for setup
 		self.text_transform = T.Sequential(
@@ -83,22 +107,21 @@ class HateXPlainDM(pl.LightningDataModule):
 		)
 		
 		self.label_transform = T.Sequential(
-			T.LabelToIndex(['normal', 'hatespeech', 'offensive']),
+			T.LabelToIndex(['neutral', 'entailment', 'contradiction']),
 			T.ToTensor()
 		)
-		
-		self.entropy_transform = EntropyTransform()
 	
 	def setup(self, stage: str = None):
-		dataset_kwargs = dict(root=self.cache_path, n_data=self.n_data)
+		dataset_kwargs = dict(root=self.cache_path, n_data=self.n_data,
+		                      transformations=self.transformations, column_name=self.rename_columns,)
 		
 		# called on every GPU
 		if stage == 'fit' or stage is None:
-			self.train_set = HateXPlain(split='train', **dataset_kwargs)
-			self.val_set = HateXPlain(split='val', **dataset_kwargs)
+			self.train_set = PretransformedESNLI(split='train', **dataset_kwargs)
+			self.val_set = PretransformedESNLI(split='val', **dataset_kwargs)
 		
 		if stage == 'test' or stage is None:
-			self.test_set = HateXPlain(split='test', **dataset_kwargs)
+			self.test_set = PretransformedESNLI(split='test', **dataset_kwargs)
 	
 	def train_dataloader(self):
 		return DataLoader(self.train_set, batch_size=self.batch_size, shuffle=True, collate_fn=self.collate, num_workers=self.num_workers)
@@ -115,13 +138,20 @@ class HateXPlainDM(pl.LightningDataModule):
 		batch = self.list2dict(batch)
 		
 		b = {
-			'token_ids': self.text_transform(batch['post_tokens']),
-			'a_true': self.rationale_transform(batch['rationale']),
+			'premise_ids': self.text_transform(batch['premise_tokens']),
+			'hypothesis_ids': self.text_transform(batch['hypothesis_tokens']),
+			'a_true': {
+				'premise': self.rationale_transform(batch['premise_rationale']),
+				'hypothesis': self.rationale_transform(batch['hypothesis_rationale']),
+			},
 			'y_true': self.label_transform(batch['label'])
 		}
 		
-		b['padding_mask'] = b['token_ids'] == self.vocab[PAD_TOK]
-		b['a_true_entropy'] = self.entropy_transform(b['a_true'], b['padding_mask'])
+		b['padding_mask'] = {
+			'premise': b['premise_ids'] == self.vocab[PAD_TOK],
+			'hypothesis': b['hypothesis_ids'] == self.vocab[PAD_TOK],
+		}
+		
 		return b
 	
 	def list2dict(self, batch):

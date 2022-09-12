@@ -3,6 +3,7 @@ from typing import Union
 import spacy
 from torch.nn import Module
 
+from modules.logger import log
 from modules.metrics import entropy
 
 
@@ -65,8 +66,10 @@ class EntropyTransform(Module):
 	
 	def forward(self, rationale, padding_mask):
 		# transform into uniform distribution:
-		rationale = rationale / rationale.sum(axis=1).unsqueeze(1)
-		return entropy(rationale, padding_mask)
+		sum_rationale = rationale.sum(axis=1).unsqueeze(1)
+		rationale = rationale / (sum_rationale + (sum_rationale == 0))
+		entr = entropy(rationale, padding_mask)
+		return entr
 	
 	def __str__(self):
 		return 'entropy_transform'
