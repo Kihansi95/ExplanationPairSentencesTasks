@@ -20,11 +20,11 @@ from data_module.yelp_hat import *
 from modules.logger import log, init_logging
 from modules import metrics, env, rescale, INF
 
-from model.lstm_attention import LstmAttention
+from model.pur_attention import PureAttention
 from modules.loss import IoU
 
 
-class LitModel(pl.LightningModule):
+class AttitModel(pl.LightningModule):
 
     def __init__(self, cache_path, mode, vocab, pretrained_vectors: Union[str, torch.tensor] = None,
                  lambda_entropy: float = 0.,
@@ -32,9 +32,10 @@ class LitModel(pl.LightningModule):
                  lambda_lagrange: float = 0.,
                  data='Unk data',
                  num_class=-1,
-                 n_lstm=1,
+                 num_layers=1,
+                 num_heads=1,
                  **kwargs):
-        super(LitModel, self).__init__()
+        super(AttitModel, self).__init__()
 
         # log hyperparameters into hparams.yaml
         self.save_hyperparameters('data', 'n_lstm', 'lambda_entropy', 'lambda_supervise', 'lambda_lagrange')
@@ -46,13 +47,15 @@ class LitModel(pl.LightningModule):
             pretrained_vectors = [vectors[token] for token in vocab.get_itos()]
             pretrained_vectors = torch.stack(pretrained_vectors)
 
-        self.model = LstmAttention(pretrained_embedding=pretrained_vectors,
+        # TODO : express the real model
+        # pure attention model
+        self.model = PureAttention(pretrained_embedding=pretrained_vectors,
                                    vocab_size=len(vocab),
-                                   d_embedding=kwargs['d_embedding'],
-                                   padding_idx=vocab[PAD_TOK],
+                                   num_heads=num_heads,
+                                   num_layers=num_layers,
+                                   attention_raw=True,
                                    n_class=num_class,
-                                   n_lstm=n_lstm,
-                                   attention_raw=True)
+                                   d_embedding=kwargs['d_embedding'])
 
         self.loss_fn = nn.CrossEntropyLoss()
         self.supervise_loss_fn = IoU()
@@ -112,8 +115,13 @@ class LitModel(pl.LightningModule):
         padding_mask = batch['padding_mask']
         a_true = batch['a_true']
         a_true_entropy = batch['a_true_entropy']
-        y_hat, a_hat = self(ids=batch['token_ids'], mask=padding_mask)
+
+        output_model = self(ids=batch['token_ids'], mask=padding_mask)
+
+        y_hat = output_model["logits"]
         loss_classif = self.loss_fn(y_hat, y_true)
+
+        # TODO : work on the attention (create the attention map based on the different weights)
         a_hat_entropy = metrics.entropy(a_hat, padding_mask, normalize=True)
         loss_entropy = a_hat_entropy.mean()
 
@@ -128,7 +136,10 @@ class LitModel(pl.LightningModule):
 
         loss_lagrange = self.lagrange_loss_fn(a_hat_entropy, a_true_entropy)
 
-        loss = loss_classif + self.lambda_entropy * loss_entropy + self.lambda_supervise * loss_supervise + self.lambda_lagrange * loss_lagrange
+        # add all the regularization parts
+        loss = loss_classif + self.lambda_entropy * loss_entropy + \
+               self.lambda_supervise * loss_supervise + \
+               self.lambda_lagrange * loss_lagrange
 
         return {'loss': loss, 'loss_entropy': loss_entropy, 'loss_supervise': loss_supervise,
                 'loss_lagrange': loss_lagrange,
@@ -384,19 +395,19 @@ if __name__ == '__main__':
 
     # prepare data here before going to multiprocessing
     dm.prepare_data()
-    model = LitModel(cache_path=MODEL_CACHE,
-                     mode=args.mode,
-                     vocab=dm.vocab,
-                     lambda_entropy=args.lambda_entropy,
-                     lambda_supervise=args.lambda_supervise,
-                     lambda_lagrange=args.lambda_lagrange,
-                     pretrained_vectors=args.vectors,
-                     n_lstm=args.n_lstm,
-                     d_hidden_lstm=args.d_hidden_lstm,
-                     d_embedding=args.d_embedding,
-                     data=args.data,
-                     num_class=dm.num_class
-                     )
+    model = AttitModel(cache_path=MODEL_CACHE,
+                       mode=args.mode,
+                       vocab=dm.vocab,
+                       lambda_entropy=args.lambda_entropy,
+                       lambda_supervise=args.lambda_supervise,
+                       lambda_lagrange=args.lambda_lagrange,
+                       pretrained_vectors=args.vectors,
+                       n_lstm=args.n_lstm,
+                       d_hidden_lstm=args.d_hidden_lstm,
+                       d_embedding=args.d_embedding,
+                       data=args.data,
+                       num_class=dm.num_class
+                       )
 
     # call back
     early_stopping = cb.EarlyStopping('VAL/loss', patience=5, verbose=args.mode != M_EXP,
