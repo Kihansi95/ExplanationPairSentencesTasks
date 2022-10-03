@@ -13,11 +13,12 @@ import numpy as np
 from torchtext.utils import download_from_url, extract_archive
 
 from data import ArgumentError
-from data.yelp_hat.utils import yelp_hat_ham, yelp_hat_token
+from modules.const import InputType
 from modules.logger import log
 
 DATASET_NAME = 'yelp-hat'
 NUM_CLASS = 2
+INPUT = InputType.SINGLE
 
 _EXTRACTED_FILES = {
 	'yelp': 'yelp.parquet',
@@ -154,6 +155,7 @@ def _reformat_dataframe(data: pd.DataFrame):
 class YelpHat(MapDataPipe):
 	
 	NUM_CLASS = NUM_CLASS
+	INPUT=INPUT
 	
 	def __init__(self, split: str = 'yelp', root: str = path.join(os.getcwd(), '.cache'),  n_data: int = -1):
 		

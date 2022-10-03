@@ -27,6 +27,7 @@ class YelpHatDM(pl.LightningDataModule):
 		self.num_workers = num_workers
 		self.spacy_model = spacy.load('en_core_web_sm')
 		self.num_class = SpacyPretokenizeYelpHat.NUM_CLASS
+		self.input_type = SpacyPretokenizeYelpHat.INPUT
 	
 	def prepare_data(self):
 		# called only on 1 GPU

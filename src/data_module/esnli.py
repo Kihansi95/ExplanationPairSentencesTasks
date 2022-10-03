@@ -27,6 +27,7 @@ class ESNLIDM(pl.LightningDataModule):
 		self.n_data = n_data
 		self.num_workers = num_workers
 		self.num_class = PretransformedESNLI.NUM_CLASS
+		self.input_type = PretransformedESNLI.INPUT
 		
 		spacy_model = spacy.load('en_core_web_sm')
 		tokenizer_transform = LemmaLowerTokenizerTransform(spacy_model)

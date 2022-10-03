@@ -25,7 +25,8 @@ class HateXPlainDM(pl.LightningDataModule):
 		# Dataset already tokenized
 		self.n_data = n_data
 		self.num_workers = num_workers
-		self.num_class = NUM_CLASS
+		self.num_class = HateXPlain.NUM_CLASS
+		self.input_type = HateXPlain.INPUT
 	
 	def prepare_data(self):
 		# called only on 1 GPU

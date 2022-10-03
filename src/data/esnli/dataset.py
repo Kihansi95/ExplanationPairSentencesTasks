@@ -10,10 +10,12 @@ from torchtext.utils import download_from_url, extract_archive
 from torch.utils.data import MapDataPipe
 
 from data import ArgumentError
+from modules.const import InputType
 from modules.logger import log
 
 DATASET_NAME = 'esnli'
 NUM_CLASS = 3
+INPUT = InputType.DUAL
 
 URL = 'https://github.com/OanaMariaCamburu/e-SNLI/archive/refs/heads/master.zip'
 
@@ -148,6 +150,7 @@ def _reformat_dataframe(data: pd.DataFrame):
 class ESNLI(MapDataPipe):
 	
 	NUM_CLASS = NUM_CLASS
+	INPUT = INPUT
 	
 	def __init__(self, split: str = 'train', root: str = path.join(os.getcwd(), '.cache'), n_data: int = -1):
 		"""
