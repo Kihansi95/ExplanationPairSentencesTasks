@@ -409,7 +409,7 @@ if __name__ == '__main__':
 		callbacks=[early_stopping, model_checkpoint],
 		# auto_scale_batch_size=True,
 		#track_grad_norm=2,
-		# detect_anomaly=True # TODO deactivate on large scale experiemnt
+		# detect_anomaly=True # deactivate on large scale experiemnt
 	)
 	
 	trainer.fit(model, datamodule=dm)

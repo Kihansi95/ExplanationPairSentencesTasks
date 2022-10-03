@@ -237,7 +237,6 @@ class LitModel(pl.LightningModule):
 		# Filter by mask
 		return attention[~pad_mask]
 	
-	
 	def on_train_start(self):   
 		init_hp_metrics = {f'TEST/{k}': 0 for k in self.y_metrics['TEST']}
 		init_hp_metrics.update({f'TEST/{k}': 0 for k in self.attention_metrics['TEST']})
