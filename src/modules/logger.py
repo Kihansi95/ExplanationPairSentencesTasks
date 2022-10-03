@@ -78,6 +78,8 @@ def init_logging(color: bool = True, cache_path: str = None, level=logging.DEBUG
         handler.setLevel(logging.DEBUG)
         
     else:
+        os.makedirs(path.join(cache_path), exist_ok=True)
+        os.makedirs(path.join(cache_path, experiment), exist_ok=True)
         os.makedirs(path.join(cache_path, experiment, version), exist_ok=True)
         log_path = cache_path if '.log' in cache_path else path.join(cache_path, experiment, version, f'{experiment}.{version}.log')
         handler = logging.FileHandler(log_path)

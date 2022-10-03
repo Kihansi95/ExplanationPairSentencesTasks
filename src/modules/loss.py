@@ -3,6 +3,9 @@ from torch import Tensor
 from torch.nn.modules.loss import _Loss
 
 # https://github.com/kevinzakka/pytorch-goodies/blob/master/losses.py
+from modules.logger import log
+
+
 class IoU(_Loss):
 	"""
 	Computes the Jaccard loss, a.k.a the IoU loss.
@@ -15,10 +18,9 @@ class IoU(_Loss):
         jacc_loss: the Jaccard loss.
     """
 	
-	def __init__(self, eps:float=1e-7, threshold=0.5, normalize=None, size_average=None, reduce=None, reduction: str = 'mean',):
+	def __init__(self, eps:float=1e-7, normalize=None, size_average=None, reduce=None, reduction: str = 'mean',):
 		super(IoU, self).__init__(size_average, reduce, reduction)
 		self.eps = eps
-		self.threshold = threshold
 		self.normalize = normalize
 		
 	def forward(self, input: Tensor, target: Tensor) -> Tensor:
@@ -28,7 +30,9 @@ class IoU(_Loss):
 			target (): a tensor of shape [B, H, W] or [B, 1, H, W].
 		"""
 		if self.normalize is None:
-			self.normalize = (input > 1.).any()
+			self.normalize = (input.abs() > 1.).any()
+			if self.normalize:
+				log.warn(f'Parameter $normalize$, initially `None`, is now set to `True`')
 		
 		if self.normalize:
 			input = torch.sigmoid(input)
@@ -42,7 +46,7 @@ class IoU(_Loss):
 if __name__ == '__main__':
 	from torchmetrics import JaccardIndex
 	
-	custom_iou = IoU()
+	custom_iou = IoU(normalize=True)
 	m_iou = JaccardIndex(2)
 	x = torch.tensor([0.2, 0.3, 1., 0.98, 0.5])
 	y = torch.tensor([0, 0, 1, 1, 1])

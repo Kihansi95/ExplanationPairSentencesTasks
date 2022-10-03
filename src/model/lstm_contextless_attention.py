@@ -48,7 +48,7 @@ class LstmContextlessAttention(nn.Module):
 		# self.attention = nn.MultiheadAttention(embed_dim=d_hidden_lstm, num_heads=num_heads, dropout=dropout,
 		#                                        kdim=d_attn, vdim=d_attn)
 		attention_raw = kwargs.get('attention_raw', False)
-		self.attention = Attention(embed_dim=d_out_lstm, num_heads=num_heads, dropout=dropout, kdim=d_attn, vdim=d_attn,
+		self.attention = Attention(embed_dim=d_out_lstm, num_heads=num_heads, dropout=dropout, kdim=d_in_lstm, vdim=d_attn,
 		                           batch_first=True, attention_raw=attention_raw)
 		d_context = d_out_lstm
 		
@@ -86,7 +86,7 @@ class LstmContextlessAttention(nn.Module):
 		# h = hidden_dim = embedding_size
 		# C = n_class
 		ids = input_['ids']
-		mask = input_.get('mask', torch.zeros_like(x))
+		mask = input_.get('mask', torch.zeros_like(ids))
 		
 		# Reproduce hidden representation from LSTM
 		word_vec = self.embedding(ids)
@@ -121,38 +121,28 @@ class LstmContextlessAttention(nn.Module):
 
 if __name__ == '__main__':
 	
-	import spacy
-	from torch import optim
 	from torch.nn.utils.rnn import pad_sequence
-	from torchtext.vocab import Vocab
-	from torchtext.data import get_tokenizer
+	from torchtext.vocab import build_vocab_from_iterator
+	from torch import nn, optim
+	import spacy
 	
 	# === Params ===
-	spacy_model = spacy.load('fr_core_news_md')
-	method = 'general'
-	h = spacy_model.vocab.vectors.shape[-1]
+	spacy_model = spacy.load('en_core_web_sm')
 	
 	# === Examples ===
-	doc1 = [
-		'Bonjour tonton',
-		'Comment allez-vous?',
-		'Nik a les cheveux courts.'
+	doc = [
+		'A man inspects the uniform of a figure in some East Asian country.',
+		'An older and younger man smiling.',
+		'A black race car starts up in front of a crowd of people.'
 	]
-	doc2 = [
-		'On l’utilise principalement entre copains, entre écoliers, entre jeunes…',
-		'Ce repas/plat était très bon!',
-		'Tina a les cheveux bouclés.'
-	]
+	
 	y = [0, 1, 2]
 	
 	# Tokenize
 	# ==============
-	# tokenizer = Tokenizer(spacy_model=spacy_model, mode=2)
-	tokenizer = get_tokenizer('spacy') # spacy tokenizer, provided by torchtext
-	counter = tokenizer.count_tokens(doc1 + doc2)
+	tokens = [[tk.lemma_.lower() for tk in d] for d in spacy_model.pipe(doc)]
 	
-	vocab = Vocab(counter, specials=['<unk>', '<pad>', '<msk>'])
-	tokenizer.vocab = vocab
+	vocab = build_vocab_from_iterator(tokens, specials=['<unk>', '<pad>', '<msk>'])
 	# === Test ===
 	
 	# tokenize

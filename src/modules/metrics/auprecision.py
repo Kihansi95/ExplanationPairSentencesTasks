@@ -14,7 +14,7 @@ class AUPrecision(AUC):
 	x: List[Tensor]
 	y: List[Tensor]
 	
-	def __init__(self, reorder: bool = False, **kwargs) -> None:
+	def __init__(self, reorder: bool = True, **kwargs) -> None:
 		super(AUPrecision, self).__init__(reorder, **kwargs)
 	
 	def update(self, preds: Tensor, target: Tensor) -> None:  # type: ignore
@@ -28,4 +28,4 @@ class AUPrecision(AUC):
 		precisions = torch.tensor([F.precision(preds, target, threshold=eps) for eps in thresholds], device=self.device)
 		super(AUPrecision, self).update(thresholds, precisions)
 		
-	
+	# 09  901

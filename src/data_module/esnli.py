@@ -10,7 +10,7 @@ import torchtext.transforms as T
 from tqdm import tqdm
 from os import path
 
-from data.esnli.transform_dataset import PretransformedESNLI
+from data.esnli.legacy_transform_dataset import PretransformedESNLI
 from data.esnli.transforms import HighlightTransform, HeuristicTransform
 from data.transforms import LemmaLowerTokenizerTransform
 from data_module.constant import *
@@ -124,7 +124,7 @@ class ESNLIDM(pl.LightningDataModule):
 			self.test_set = PretransformedESNLI(split='test', **dataset_kwargs)
 	
 	def train_dataloader(self):
-		return DataLoader(self.train_set, batch_size=self.batch_size, shuffle=True, collate_fn=self.collate, num_workers=self.num_workers)
+		return DataLoader(self.train_set, batch_size=self.batch_size, shuffle=False, collate_fn=self.collate, num_workers=self.num_workers)
 	
 	def val_dataloader(self):
 		return DataLoader(self.val_set, batch_size=self.batch_size, shuffle=False, collate_fn=self.collate, num_workers=self.num_workers)

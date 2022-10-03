@@ -76,12 +76,12 @@ class LitModel(pl.LightningModule):
 			template_attention_metrics = m.MetricCollection({
 				'a:AUROC': m.AUROC(average='micro'),
 				'a:AUPRC': m.AveragePrecision(average='micro'),
+				'a:Recall': metrics.AURecall(),
+				'a:Precision': metrics.AUPrecision(),
 				'a:Jaccard': metrics.PowerJaccard(),
 				'a:Jaccard2': metrics.PowerJaccard(power=2.),
 				'a:Dice': m.Dice(),
 				'a:IoU': m.JaccardIndex(num_classes=2),
-				'a:Recall': metrics.AURecall(),
-				'a:Precision': metrics.AUPrecision(),
 			})
 			warnings.simplefilter("ignore")
 		
@@ -418,6 +418,11 @@ if __name__ == '__main__':
 		ckpt_path='best',
 	    datamodule=dm
 	)
+	
+	# remove 'TEST/' from score dicts:
+	scores = [
+		{k.replace('TEST/', ''): v for k, v in s.items()} for s in scores
+	]
 	
 	for idx, score in enumerate(scores):
 		log.info(score)

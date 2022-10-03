@@ -45,11 +45,9 @@ class LstmAttention(nn.Module):
 		
 		d_attn = kwargs.get('d_attn', d_out_lstm)
 		
-		# self.attention = nn.MultiheadAttention(embed_dim=d_hidden_lstm, num_heads=num_heads, dropout=dropout,
-		#                                        kdim=d_attn, vdim=d_attn)
+		# self.attention = nn.MultiheadAttention(embed_dim=d_hidden_lstm, num_heads=num_heads, dropout=dropout, kdim=d_attn, vdim=d_attn)
 		attention_raw = kwargs.get('attention_raw', False)
-		self.attention = Attention(embed_dim=d_out_lstm, num_heads=num_heads, dropout=dropout, kdim=d_attn, vdim=d_attn,
-		                           batch_first=True, attention_raw=attention_raw)
+		self.attention = Attention(embed_dim=d_out_lstm, num_heads=num_heads, dropout=dropout, kdim=d_attn, vdim=d_attn, batch_first=True, attention_raw=attention_raw)
 		d_context = d_out_lstm
 		
 		d_fc_out = kwargs.get('d_fc_out', d_context)
