@@ -196,7 +196,6 @@ class DualLSTMAttentionModule(pl.LightningModule):
 	def test_step_end(self, outputs):
 		return self.step_end(outputs, stage='TEST')
 	
-	# TODO
 	def flatten_attention(self, attention, pad_mask, condition=None, normalize:str =''):
 		"""
 		Filter attention
