@@ -6,15 +6,15 @@ import torch
 from torch.utils.data import DataLoader
 from torchtext.vocab import build_vocab_from_iterator
 import torchtext.transforms as T
-from data import HateXPlain
+from src.data import HateXPlain
 from tqdm import tqdm
 from os import path
 
-from data.hatexplain.dataset import NUM_CLASS
-from data.transforms import EntropyTransform
-from data_module.constant import *
-from modules import env
-from modules.logger import log
+from src.data.hatexplain.dataset import NUM_CLASS
+from src.data.transforms import EntropyTransform
+from src.data_module.constant import *
+from src.modules import env
+from src.modules.logger import log
 
 class HateXPlainDM(pl.LightningDataModule):
 	
