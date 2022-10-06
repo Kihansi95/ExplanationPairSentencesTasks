@@ -6,16 +6,18 @@ from model.layers.fully_connected import FullyConnected
 from modules.logger import log
 
 
-class LstmAttention(nn.Module):
+class LstmContextlessKeyAttention(nn.Module):
 	
-	def __init__(self, d_embedding: int, padding_idx: int, vocab_size:int=None, pretrained_embedding=None, n_class=3, **kwargs):
+	def __init__(self, d_embedding: int, padding_idx: int, vocab_size: int = None, pretrained_embedding=None, n_class=3,
+	             **kwargs):
 		"""
 		Delta model has a customized attention layers
 		"""
 		
-		super(LstmAttention, self).__init__()
+		super(LstmContextlessKeyAttention, self).__init__()
 		# Get model parameters
-		assert not(vocab_size is None and pretrained_embedding is None), 'Provide either vocab size or pretrained embedding'
+		assert not (
+					vocab_size is None and pretrained_embedding is None), 'Provide either vocab size or pretrained embedding'
 		
 		# embedding layers
 		freeze = kwargs.get('freeze', False)
@@ -42,12 +44,13 @@ class LstmAttention(nn.Module):
 		
 		# Bidirectional
 		d_out_lstm = d_in_lstm * 2
-		
 		d_attn = kwargs.get('d_attn', d_out_lstm)
-		
-		# self.attention = nn.MultiheadAttention(embed_dim=d_hidden_lstm, num_heads=num_heads, dropout=dropout, kdim=d_attn, vdim=d_attn)
 		attention_raw = kwargs.get('attention_raw', False)
-		self.attention = Attention(embed_dim=d_out_lstm, num_heads=num_heads, dropout=dropout, kdim=d_attn, vdim=d_attn, batch_first=True, attention_raw=attention_raw)
+		
+		self.fc_key_attention = nn.Linear(d_embedding, d_attn)
+		self.attention = Attention(embed_dim=d_out_lstm, num_heads=num_heads, dropout=dropout, kdim=d_attn, vdim=d_attn,
+		                           batch_first=True, attention_raw=attention_raw)
+		
 		d_context = d_out_lstm
 		
 		d_fc_out = kwargs.get('d_fc_out', d_context)
@@ -67,13 +70,13 @@ class LstmAttention(nn.Module):
 		
 		# Constants
 		self.d = 1 + int(self.lstm.bidirectional)
-		
 	
 	def forward(self, **input_):
 		"""
 
 		Args:
-			inputs: ( input1 (N, L, h) , input2(N, L, h), optional: mask1, optional: mask2)
+			ids: token ids
+			mask: padding mask
 
 		Returns:
 
@@ -82,30 +85,29 @@ class LstmAttention(nn.Module):
 		# L = sequence_length
 		# h = hidden_dim = embedding_size
 		# C = n_class
-		x = input_['ids']
-		mask = input_.get('mask', torch.zeros_like(x))
+		ids = input_['ids']
+		mask = input_.get('mask', torch.zeros_like(ids))
 		
 		# Reproduce hidden representation from LSTM
-		x = self.embedding(x)
+		word_vec = self.embedding(ids)
 		
 		self.lstm.flatten_parameters()  # flatten parameters for data parallel
-		h_seq, (h_last, _) = self.lstm(x)
+		h_seq, (h_last, _) = self.lstm(word_vec)
 		
 		h_last = h_last[-self.d:].permute(1, 0, 2)  # size() == (N, n_direction, d_hidden_lstm)
 		h_last = h_last.reshape(h_last.size(0), 1, -1)  # size() == (N, 1, n_direction * d_hidden_lstm)
 		
-		# Reswapping dimension for multihead attention
-		#h_last = h_last.permute(1, 0, 2)  # (1, N, d_out_lstm)
-		#h_seq = h_seq.permute(1, 0, 2)  # (L, N, d_hidden_lstm)
+		# Reproject key for attention:
+		k_seq = self.fc_key_attention(word_vec)
 		
 		# Compute attention
 		# context.size() == (N, 1, d_attention)
 		# attn_weight.size() == (N, 1, L)
-		context, attn_weights = self.attention(query=h_last, key=h_seq, value=h_seq, key_padding_mask=mask)
+		context, attn_weights = self.attention(query=h_last, key=k_seq, value=h_seq, key_padding_mask=mask)
 		context = context.squeeze(dim=1)
 		h_last = h_last.squeeze(dim=1)
 		# x = context.squeeze(dim=1)
-
+		
 		x = torch.cat([context, h_last], dim=1)
 		x = self.fc_squeeze(x)  # (N, d_fc_out)
 		
@@ -120,54 +122,49 @@ class LstmAttention(nn.Module):
 
 if __name__ == '__main__':
 	
-	import spacy
-	from torch import optim
 	from torch.nn.utils.rnn import pad_sequence
-	from torchtext.vocab import Vocab
-	from torchtext.data import get_tokenizer
+	from torchtext.vocab import build_vocab_from_iterator
+	from torch import nn, optim
+	import spacy
 	
 	# === Params ===
-	spacy_model = spacy.load('fr_core_news_md')
-	method = 'general'
-	h = spacy_model.vocab.vectors.shape[-1]
+	spacy_model = spacy.load('en_core_web_sm')
 	
 	# === Examples ===
-	doc1 = [
-		'Bonjour tonton',
-		'Comment allez-vous?',
-		'Nik a les cheveux courts.'
+	doc = [
+		'A man inspects the uniform of a figure in some East Asian country.',
+		'An older and younger man smiling.',
+		'A black race car starts up in front of a crowd of people.'
 	]
-	doc2 = [
-		'On l’utilise principalement entre copains, entre écoliers, entre jeunes…',
-		'Ce repas/plat était très bon!',
-		'Tina a les cheveux bouclés.'
-	]
+	
 	y = [0, 1, 2]
 	
 	# Tokenize
 	# ==============
-	# tokenizer = Tokenizer(spacy_model=spacy_model, mode=2)
-	tokenizer = get_tokenizer('spacy') # spacy tokenizer, provided by torchtext
-	counter = tokenizer.count_tokens(doc1 + doc2)
+	tokens = [[tk.lemma_.lower() for tk in d] for d in spacy_model.pipe(doc)]
 	
-	vocab = Vocab(counter, specials=['<unk>', '<pad>', '<msk>'])
-	tokenizer.vocab = vocab
+	vocab = build_vocab_from_iterator(tokens, specials=['<unk>', '<pad>', '<msk>'])
 	# === Test ===
 	
 	# tokenize
-	x1 = [tokenizer.numericalize(d) for d in doc1]
-	x2 = [tokenizer.numericalize(d) for d in doc2]
+	x = [vocab(tks) for tks in tokens]
 	
 	# convert to tensor
-	x1 = [torch.tensor(x, dtype=torch.long) for x in x1]
-	x2 = [torch.tensor(x, dtype=torch.long) for x in x2]
+	x = [torch.tensor(_x, dtype=torch.long) for _x in x]
 	
-	x1 = pad_sequence(x1, batch_first=True)
-	x2 = pad_sequence(x2, batch_first=True)
+	x = pad_sequence(x, batch_first=True)
 	
 	y = torch.tensor(y, dtype=torch.long)
-	
-	model = LstmAttention(d_in=300, dropout=0, d_fc_lstm=-1, d_fc_attentiion=-1, d_context=-1, n_class=3, n_fc_out=0)
+	padding_idx = vocab['<pad>']
+	model = LstmContextlessKeyAttention(d_embedding=300,
+	                                    padding_idx=padding_idx,
+	                                    vocab_size=len(vocab),
+	                                    dropout=0,
+	                                    d_fc_lstm=-1,
+	                                    d_fc_attentiion=-1,
+	                                    d_context=-1,
+	                                    n_class=3,
+	                                    n_fc_out=0)
 	
 	model.train()
 	
@@ -178,17 +175,17 @@ if __name__ == '__main__':
 		# reset optimizer
 		optimizer.zero_grad()
 		
-		preds, _ = model([x1, x2])
+		preds, _ = model(ids=x, pads=x == padding_idx)
 		loss = loss_fn(preds, y)
 		
 		loss.backward()
 		optimizer.step()
 		
 		running_loss = loss.item()
-		print("[{:0>3d}] loss: {:.3f}".format(epoch + 1, running_loss))
+		print("[epoch {:0>3d}] loss: {:.3f}".format(epoch + 1, running_loss))
 	
 	model.eval()
-	predict, _ = model([x1, x2])
+	predict, _ = model(ids=x, pads=(x == padding_idx))
 	predict = predict.detach()
 	print('Prediction:')
 	print(predict)

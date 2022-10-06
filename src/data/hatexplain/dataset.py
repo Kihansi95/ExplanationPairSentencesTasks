@@ -12,10 +12,12 @@ from torch.utils.data import MapDataPipe
 import numpy as np
 
 from data import ArgumentError
+from modules.const import InputType
 from modules.logger import log
 
 DATASET_NAME = 'hatexplain'
 NUM_CLASS = 3
+INPUT = InputType.SINGLE
 
 _EXTRACTED_FILES = {
 	'train': 'train.parquet',
@@ -92,6 +94,9 @@ def _reformat_dataframe(dataset: datasets.Dataset, split):
 
 
 class HateXPlain(MapDataPipe):
+	
+	NUM_CLASS = NUM_CLASS
+	INPUT = INPUT
 	
 	def __init__(self, split: str = 'train', root: str = path.join(os.getcwd(), '.cache'), n_data: int = -1):
 		

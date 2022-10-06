@@ -3,6 +3,7 @@ from torch import Tensor
 from torchmetrics import Metric
 from torchmetrics.utilities.enums import AverageMethod
 
+from modules.logger import log
 from modules.metrics.utils import batch_dot
 
 _SUM = 'sum'
@@ -68,14 +69,18 @@ def entropy(preds: Tensor, mask: Tensor=None, normalize:bool=None, average:str=N
 		preds = torch.softmax(preds - INF*(1. - mask), axis=1)
 	
 	log_preds = - torch.log((preds == 0) * EPS + preds)
-	log_length = torch.log(mask.sum(axis=1)).float()
+	length = mask.sum(axis=1)
+	log_length = torch.log(length + (length == 1)).float() # If length == 1 -> give length = 2
 	
 	entropies = batch_dot(preds, log_preds) / log_length
-
+	
 	if average == AverageMethod.MICRO:
-		entropies = entropies.mean()
+		entropy = entropies.mean()
 	elif average == _SUM:
-		entropies = entropies.sum()
-	return entropies
+		entropy = entropies.sum()
+	else:
+		entropy=entropies
+	
+	return entropy
 
 

@@ -32,7 +32,6 @@ class PretransformedESNLI(ESNLI):
 		fname, fext = os.path.splitext(_EXTRACTED_FILES[split])
 		self.parquet_path = path.join(root, f'{fname}.pretransformed{fext}')
 		
-		
 		if path.exists(self.parquet_path):
 			# load the cache file to data if file exist
 			self.data = pd.read_parquet(self.parquet_path)

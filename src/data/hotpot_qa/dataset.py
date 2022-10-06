@@ -12,9 +12,11 @@ from torch.utils.data import MapDataPipe
 from tqdm import tqdm
 
 from data import ArgumentError
+from modules.const import InputType
 from modules.logger import log
 
 DATASET_NAME = 'hotpot_qa'
+INPUT = InputType.SINGLE
 
 _EXTRACTED_FILES = {
 	'train': 'train.csv',

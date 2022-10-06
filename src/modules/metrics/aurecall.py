@@ -14,7 +14,7 @@ class AURecall(AUC):
 	x: List[Tensor]
 	y: List[Tensor]
 	
-	def __init__(self, reorder: bool = False, **kwargs):
+	def __init__(self, reorder: bool = True, **kwargs):
 		super(AURecall, self).__init__(reorder, **kwargs)
 	
 	def update(self, preds: Tensor, target: Tensor):
