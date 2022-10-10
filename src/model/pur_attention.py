@@ -22,9 +22,9 @@ class PositionalEncoding(nn.Module):
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
         pe = pe.unsqueeze(0).transpose(0, 1)
-        self.register_buffer('pe', pe)
 
     def forward(self, x):
+        # TODO : check the dimension for the batch
         x = x + self.pe[:x.size(0), :]
         return self.dropout(x)
 
@@ -87,7 +87,7 @@ class PureAttention(nn.Module):
                       vdim=d_embedding,
                       batch_first=True,
                       attention_raw=attention_raw)
-            for i in range(num_layers)
+            for _ in range(num_layers)
         ])
 
         self.classifier = nn.Sequential(

@@ -5,6 +5,7 @@ from argparse import ArgumentParser
 from typing import Union
 import json
 
+import torch
 from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning import callbacks as cb
 
@@ -56,6 +57,10 @@ class AttitModel(pl.LightningModule):
                                    attention_raw=True,
                                    n_class=num_class,
                                    d_embedding=kwargs['d_embedding'])
+
+        # for the calculus of the attention map
+        self.num_heads = num_heads
+        self.num_layers = num_layers
 
         self.loss_fn = nn.CrossEntropyLoss()
         self.supervise_loss_fn = IoU()
@@ -121,6 +126,14 @@ class AttitModel(pl.LightningModule):
         loss_classif = self.loss_fn(y_hat, y_true)
 
         # TODO : work on the attention (create the attention map based on the different weights)
+
+        attention_tensor = torch.stack(output_model['attn_weights'], dim=1)
+        pad_mask = padding_mask.clone().detach().to(self.device) \
+            .unsqueeze(1).unsqueeze(1).unsqueeze(1) \
+            .repeat(1, self.num_layers, self.num_heads, batch['token_ids'].shape[1], 1)
+        pad_mask = torch.transpose(pad_mask, dim0=3, dim1=4)
+        attention_tensor = torch.mul(attention_tensor, pad_mask)
+        a_hat = attention_tensor.sum(dim=1).sum(dim=1).sum(dim=1) / self.num_heads
         a_hat_entropy = metrics.entropy(a_hat, padding_mask, normalize=True)
         loss_entropy = a_hat_entropy.mean()
 
@@ -330,8 +343,8 @@ def parse_argument(prog: str = __name__, description: str = 'Experimentation on 
     parser.add_argument('--dropout', type=float)
     parser.add_argument('--d_embedding', type=int, default=300,
                         help='Embedding dimension, will be needed if vector is not precised')
-    parser.add_argument('--d_hidden_lstm', type=int, default=-1)
-    parser.add_argument('--n_lstm', type=int, default=1)
+    parser.add_argument('--num_layers', type=int, default=1, help='number of layers in the model')
+    parser.add_argument('--num_heads', type=int, default=1, help='number of heads on each layer')
 
     # Data configuration
     parser.add_argument('--n_data', '-n', type=int, default=-1,
@@ -401,8 +414,8 @@ if __name__ == '__main__':
                        lambda_supervise=args.lambda_supervise,
                        lambda_lagrange=args.lambda_lagrange,
                        pretrained_vectors=args.vectors,
-                       n_lstm=args.n_lstm,
-                       d_hidden_lstm=args.d_hidden_lstm,
+                       num_layers=args.num_layers,
+                       num_heads=args.num_heads,
                        d_embedding=args.d_embedding,
                        data=args.data,
                        num_class=dm.num_class
