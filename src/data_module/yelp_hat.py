@@ -18,6 +18,8 @@ from modules.logger import log
 
 class YelpHatDM(pl.LightningDataModule):
 	
+	name='YelpHat'
+	
 	def __init__(self, cache_path, batch_size=8, num_workers=0, n_data=-1):
 		super().__init__()
 		self.cache_path = cache_path
@@ -31,11 +33,14 @@ class YelpHatDM(pl.LightningDataModule):
 	
 	def prepare_data(self):
 		# called only on 1 GPU
-		lemma = True
-		lower = True
+		
+		# Avoid preparing twice
+		if hasattr(self, 'vocab') and self.vocab is not None: return
 		
 		# download_dataset()
 		dataset_path = SpacyPretokenizeYelpHat.root(self.cache_path)
+		lemma = True
+		lower = True
 		vocab_path = path.join(dataset_path, f'vocab{"_lemma" if lemma else ""}{"_lower" if lower else ""}.pt')
 		
 		SpacyPretokenizeYelpHat.download_format_dataset(dataset_path)  # only 1 line, download all dataset
@@ -92,7 +97,6 @@ class YelpHatDM(pl.LightningDataModule):
 		
 		self.entropy_transform = EntropyTransform()
 		
-	
 	def setup(self, stage: str = None):
 		dataset_kwargs = dict(root=self.cache_path, n_data=self.n_data)
 		
@@ -121,6 +125,9 @@ class YelpHatDM(pl.LightningDataModule):
 		# return CombinedLoader(loaders, mode="max_size_cycle") # Run multiple test set in parallel
 		return loaders
 	
+	def predict_dataloader(self):
+		return self.test_dataloader()
+	
 	## ======= PRIVATE SECTIONS ======= ##
 	def collate(self, batch):
 		# prepare batch of data for dataloader
@@ -144,6 +151,7 @@ class YelpHatDM(pl.LightningDataModule):
 	
 
 class YelpHat50DM(YelpHatDM):
+	name = 'YelpHat-50'
 	
 	def __init__(self, **kwargs):
 		super(YelpHat50DM, self).__init__(**kwargs)
@@ -165,6 +173,8 @@ class YelpHat50DM(YelpHatDM):
 	
 class YelpHat100DM(YelpHat50DM):
 	
+	name = 'YelpHat-100'
+	
 	def __init__(self, **kwargs):
 		super(YelpHat100DM, self).__init__(**kwargs)
 	
@@ -178,6 +188,7 @@ class YelpHat100DM(YelpHat50DM):
 	
 	
 class YelpHat200DM(YelpHat50DM):
+	name = 'YelpHat-200'
 	
 	def __init__(self, **kwargs):
 		super(YelpHat200DM, self).__init__(**kwargs)

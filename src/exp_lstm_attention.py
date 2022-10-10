@@ -1,7 +1,9 @@
 import os
-
-from argparse import ArgumentParser
 import json
+from argparse import ArgumentParser
+
+from modules.const import InputType, Mode
+from modules.logger import log, init_logging
 
 from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning import callbacks as cb
@@ -9,12 +11,9 @@ from pytorch_lightning import callbacks as cb
 from data_module.esnli import ESNLIDM
 from data_module.hatexplain import HateXPlainDM
 from data_module.yelp_hat import *
+
 from model_module import DualLSTMAttentionModule
 from model_module.single_lstm_attention import SingleLSTMAttentionModule
-from modules.const import InputType, Mode
-
-from modules.logger import log, init_logging
-from modules import env
 
 def get_num_workers() -> int:
 	"""
@@ -51,15 +50,13 @@ def parse_argument(prog: str = __name__, description: str = 'Train LSTM-based at
 	
 	# Training params
 	parser.add_argument('--cache', '-o', type=str, default=path.join(os.getcwd(), '..', '.cache'), help='Path to temporary directory to store output of training process')
-	parser.add_argument('--mode', '-m', type=str, default='dev', help='Choose among f[dev, exp]. "exp" will disable the progressbar')
-	parser.add_argument('--OAR_ID', type=int, help='Indicate whether we are in IGRIDA cluster mode')
+	parser.add_argument('--mode', '-m', type=str, default='dev', help='Choose among [dev, exp]. "exp" will disable the progressbar')
 	parser.add_argument('--num_workers', type=int, default=get_num_workers(), help='Indicate whether we are in IGRIDA cluster mode. Default: Use all cpu cores.')
 	parser.add_argument('--accelerator', type=str, default='auto', help='Indicate whether we are in IGRIDA cluster mode. Default: Use all cpu cores.')
 	parser.add_argument('--name', type=str, help='Experimentation name. If not given, use model name instead.')
 	parser.add_argument('--version', type=str, default='default_version', help='Experimentation version')
 	
 	# For trainer setting
-	parser.add_argument('--resume', '-r', action='store_true', help='Flag to resume the previous training process, detected by model name.')
 	parser.add_argument('--epoch', '-e', type=int, default=1, help='Number training epoch. Default: 1')
 	parser.add_argument('--batch_size', '-b', type=int, default=32, help='Number of data in batch. Default: 32')
 	parser.add_argument('--strategy', '-s', type=str, help='')

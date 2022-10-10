@@ -139,6 +139,19 @@ class SingleLSTMAttentionModule(pl.LightningModule):
 		        'a_true': batch['a_true'],
 		        'padding_mask': batch['padding_mask']}
 	
+	def predict_step(self, batch, batch_idx):
+		
+		padding_mask = batch['padding_mask']
+		y_hat, a_hat = self(
+			premise_ids=batch['premise_ids'],
+			hypothesis_ids=batch['hypothesis_ids'],
+			premise_padding=padding_mask['premise'],
+			hypothesis_padding=padding_mask['hypothesis'])
+		
+		return {'y_hat': y_hat.argmax(axis=-1),
+		        'a_hat': a_hat,
+		        'padding_mask': padding_mask}
+	
 	def step_end(self, outputs, stage: str = 'TEST'):
 		
 		a_hat, a_true = outputs['a_hat'], outputs['a_true']

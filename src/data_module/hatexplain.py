@@ -18,6 +18,8 @@ from modules.logger import log
 
 class HateXPlainDM(pl.LightningDataModule):
 	
+	name='HateXPlain'
+	
 	def __init__(self, cache_path, batch_size=8, num_workers=0, n_data=-1):
 		super().__init__()
 		self.cache_path = cache_path
@@ -30,6 +32,9 @@ class HateXPlainDM(pl.LightningDataModule):
 	
 	def prepare_data(self):
 		# called only on 1 GPU
+		
+		# Avoid preparing twice
+		if hasattr(self, 'vocab') and self.vocab is not None: return
 		
 		# download_dataset()
 		dataset_path = HateXPlain.root(self.cache_path)
@@ -109,6 +114,9 @@ class HateXPlainDM(pl.LightningDataModule):
 	
 	def test_dataloader(self):
 		return DataLoader(self.test_set, batch_size=self.batch_size, shuffle=False, collate_fn=self.collate, num_workers=self.num_workers)
+	
+	def predict_dataloader(self):
+		return self.test_dataloader()
 	
 	## ======= PRIVATE SECTIONS ======= ##
 	def collate(self, batch):

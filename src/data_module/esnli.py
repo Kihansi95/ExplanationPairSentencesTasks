@@ -10,7 +10,7 @@ import torchtext.transforms as T
 from tqdm import tqdm
 from os import path
 
-from data.esnli.legacy_transform_dataset import PretransformedESNLI
+from data.esnli.pretransform_dataset import PretransformedESNLI
 from data.esnli.transforms import HighlightTransform, HeuristicTransform
 from data.transforms import LemmaLowerTokenizerTransform
 from data_module.constant import *
@@ -19,10 +19,14 @@ from modules.logger import log
 
 class ESNLIDM(pl.LightningDataModule):
 	
+	name='eSNLI'
+	
 	def __init__(self, cache_path, batch_size=8, num_workers=0, n_data=-1):
 		super().__init__()
+		
 		self.cache_path = cache_path
 		self.batch_size = batch_size
+		
 		# Dataset already tokenized
 		self.n_data = n_data
 		self.num_workers = num_workers
@@ -32,6 +36,7 @@ class ESNLIDM(pl.LightningDataModule):
 		spacy_model = spacy.load('en_core_web_sm')
 		tokenizer_transform = LemmaLowerTokenizerTransform(spacy_model)
 		hl_transform = T.Sequential( tokenizer_transform, HighlightTransform())
+		
 		heuristic_transform = HeuristicTransform(
 			vectors=GloVe(cache=path.join(cache_path, '..', '.vector_cache')),
 			spacy_model=spacy_model,
@@ -56,6 +61,9 @@ class ESNLIDM(pl.LightningDataModule):
 	def prepare_data(self):
 		# called only on 1 GPU
 		
+		# Avoid preparing twice
+		if hasattr(self, 'vocab') and self.vocab is not None: return
+		
 		# download_dataset()
 		dataset_path = PretransformedESNLI.root(self.cache_path)
 		vocab_path = path.join(dataset_path, f'vocab.pt')
@@ -79,7 +87,6 @@ class ESNLIDM(pl.LightningDataModule):
 			iter_tokens = tqdm(iter(dp), desc='Building vocabulary', total=len(dp), unit='sents', file=sys.stdout, disable=env.disable_tqdm)
 			if env.disable_tqdm: log.info(f'Building vocabulary')
 			vocab = build_vocab_from_iterator(iterator=iter_tokens, specials=[PAD_TOK, UNK_TOK])
-			# vocab = build_vocab_from_iterator(iter(doc for doc in train_set['post_tokens']), specials=[PAD_TOK, UNK_TOK])
 			vocab.set_default_index(vocab[UNK_TOK])
 			
 			# Announce where we save the vocabulary
@@ -121,17 +128,20 @@ class ESNLIDM(pl.LightningDataModule):
 			self.train_set = PretransformedESNLI(split='train', **dataset_kwargs)
 			self.val_set = PretransformedESNLI(split='val', **dataset_kwargs)
 		
-		if stage == 'test' or stage is None:
+		if stage == 'test' or stage=='predict' or stage is None:
 			self.test_set = PretransformedESNLI(split='test', **dataset_kwargs)
 	
 	def train_dataloader(self):
-		return DataLoader(self.train_set, batch_size=self.batch_size, shuffle=False, collate_fn=self.collate, num_workers=self.num_workers)
+		return DataLoader(self.train_set, batch_size=self.batch_size, shuffle=True, collate_fn=self.collate, num_workers=self.num_workers)
 	
 	def val_dataloader(self):
 		return DataLoader(self.val_set, batch_size=self.batch_size, shuffle=False, collate_fn=self.collate, num_workers=self.num_workers)
 	
 	def test_dataloader(self):
 		return DataLoader(self.test_set, batch_size=self.batch_size, shuffle=False, collate_fn=self.collate, num_workers=self.num_workers)
+	
+	def predict_dataloader(self):
+		return self.test_dataloader()
 	
 	## ======= PRIVATE SECTIONS ======= ##
 	def collate(self, batch):

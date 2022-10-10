@@ -20,7 +20,7 @@ from data_module.yelp_hat import *
 from modules.logger import log, init_logging
 from modules import metrics, env, rescale, INF
 
-from model.lstm_contextless_key_attention import LstmContextlessKeyAttention
+from model.lstm_mlp_key_attention import LstmMLPKeyAttention
 from modules.loss import IoU
 
 
@@ -46,7 +46,7 @@ class LitModel(pl.LightningModule):
 			pretrained_vectors = [vectors[token] for token in vocab.get_itos()]
 			pretrained_vectors = torch.stack(pretrained_vectors)
 
-		self.model = LstmContextlessKeyAttention(
+		self.model = LstmMLPKeyAttention(
 			pretrained_embedding=pretrained_vectors,
 			vocab_size=len(vocab),
 			d_embedding=kwargs['d_embedding'],
