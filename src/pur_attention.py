@@ -38,17 +38,17 @@ class AttitModel(pl.LightningModule):
         super(AttitModel, self).__init__()
 
         # log hyperparameters into hparams.yaml
-        self.save_hyperparameters('data', 'n_lstm', 'lambda_entropy', 'lambda_supervise', 'lambda_lagrange')
+        self.save_hyperparameters('data', 'num_layers', 'lambda_entropy', 'lambda_supervise', 'lambda_lagrange')
         self.data = data
 
         if pretrained_vectors is not None and isinstance(pretrained_vectors, str):
             vector_path = path.join(cache_path, '..', '.vector_cache')
             vectors = pretrained[pretrained_vectors](cache=vector_path)
+            # reorder the vectors to make them fit with the vocab
+            # TODO : how do we put the '<cls>' token in our sentences
             pretrained_vectors = [vectors[token] for token in vocab.get_itos()]
             pretrained_vectors = torch.stack(pretrained_vectors)
 
-        # TODO : express the real model
-        # pure attention model
         self.model = PureAttention(pretrained_embedding=pretrained_vectors,
                                    vocab_size=len(vocab),
                                    num_heads=num_heads,
@@ -67,7 +67,6 @@ class AttitModel(pl.LightningModule):
         self.lambda_entropy = lambda_entropy
         self.lambda_supervise = lambda_supervise
         self.lambda_lagrange = lambda_lagrange
-
         self.caching_weight = None
 
         template_y_metrics = m.MetricCollection({

@@ -2,10 +2,31 @@ from collections import OrderedDict
 
 import torch
 from torch import nn
+import math
 
 from src.model.layers.attention import Attention
 from src.model.layers.fully_connected import FullyConnected
 from src.modules.logger import log
+
+
+# huggin face class for the positional encoding
+class PositionalEncoding(nn.Module):
+
+    def __init__(self, d_model, dropout=0, max_len=5000):
+        super(PositionalEncoding, self).__init__()
+        self.dropout = nn.Dropout(p=dropout)
+
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        pe = pe.unsqueeze(0).transpose(0, 1)
+        self.register_buffer('pe', pe)
+
+    def forward(self, x):
+        x = x + self.pe[:x.size(0), :]
+        return self.dropout(x)
 
 
 class PureAttention(nn.Module):
@@ -17,7 +38,13 @@ class PureAttention(nn.Module):
                  n_class=3,
                  **kwargs):
         """
-        Delta model has a customized attention layers
+        Args:
+            d_embedding: dimension of the embeddings
+            padding_idx: index of the padding token in the vocab
+            vocab_size: length of the vocab
+            pretrained_embedding: pre-trained vectors if we don't want to build them from zeros
+            n_class: number of classes for the classification
+            **kwargs: additional parameters
         """
 
         super(PureAttention, self).__init__()
@@ -31,7 +58,6 @@ class PureAttention(nn.Module):
 
         self.n_classes = n_class
         dropout = kwargs.get('dropout', 0.)
-
         num_heads = kwargs.get('num_heads', 1)
         activation = kwargs.get('activation', 'relu')
         num_layers = kwargs.get('num_layers', 1)
@@ -46,18 +72,23 @@ class PureAttention(nn.Module):
             log.debug(f'Load vector from pretraining')
             self.embedding = nn.Embedding.from_pretrained(pretrained_embedding, freeze=freeze, padding_idx=padding_idx)
 
-        # the attention block for multiple layers
+        # add a positional encoding layer
+        self.pe = PositionalEncoding(d_model=d_embedding,
+                                     dropout=0,
+                                     max_len=10000)
+
+        # attention layers store attention layers in module list : keep the gradient in the graph.
         attention_raw = kwargs.get('attention_raw', False)
-        self.attention_layers = nn.ModuleDict({
-            f"att_layer_{i + 1}": Attention(embed_dim=d_embedding,
-                                            num_heads=num_heads,
-                                            dropout=dropout,
-                                            kdim=d_embedding,
-                                            vdim=d_embedding,
-                                            batch_first=True,
-                                            attention_raw=attention_raw)
+        self.attention_layers = nn.ModuleList([
+            Attention(embed_dim=d_embedding,
+                      num_heads=num_heads,
+                      dropout=dropout,
+                      kdim=d_embedding,
+                      vdim=d_embedding,
+                      batch_first=True,
+                      attention_raw=attention_raw)
             for i in range(num_layers)
-        })
+        ])
 
         self.classifier = nn.Sequential(
             nn.Linear(d_embedding, self.n_classes),
@@ -68,57 +99,55 @@ class PureAttention(nn.Module):
 
     def forward(self, **input_):
         """
-
         Args:
-            inputs: (input (N, L, h), optional: mask1)
+            **input_:
 
         Returns:
+            A dictionnary for the outputs.
 
         """
         # N = batch_size
         # L = sequence_length
         # h = hidden_dim = embedding_size
+        # H = number of heads
         # C = n_class
-        # note : always put the batch first.
         x = input_['ids']  # of shape (N, L)
         mask = input_.get('mask', torch.zeros_like(x))
 
+        # non contextual embeddings
         x = self.embedding(x)  # shape of (N, L, h)
 
-        attention_weights = []
+        # the positional encoding
+        x = self.pe(x)
+
+        attention_weights = []  # each element of the list is of size (N, H, L, L)
         hidden_states = [x]  # first we put the non-contextualized embeddings
 
-        for k in self.attention_layers:
-            # Compute attention
+        for i, l in enumerate(self.attention_layers):
+            # Compute attention : contextualization of the embeddings
             # compute the attention on the embeddings
             # TODO : ask duc-hau for this part
-            context, attn_weights = self.attention_layers[k](query=x,
-                                                             key=x,
-                                                             value=x,
-                                                             key_padding_mask=mask)
+            context, attn_weights = l(query=x,
+                                      key=x,
+                                      value=x,
+                                      key_padding_mask=mask)
             hidden_states.append(context)
             attention_weights.append(attn_weights)
             x = context  # update the different embeddings
 
+        # cls token of the last hidden state
         cls_tokens = x[:, 0, :]
 
         logits = self.classifier(cls_tokens)
 
-        """x = torch.cat([context, h_last], dim=1)
-        x = self.fc_squeeze(x)  # (N, d_fc_out)
-
-        for fc in self.fc_out:
-            x = fc(x)  # (N, d_fc_out) unchanged
-        out = self.classifier(x)  # (N, n_class)
-
-        attn_weights = attn_weights.squeeze(1)"""
-
-        return {"last_hidden_states": x,
-                "hidden_states": hidden_states,
-                "attn_weights": attention_weights,
-                "cls_tokens": cls_tokens,
-                "logits": logits
-                }
+        # for duc-hau : change here we return a dictionnary (man you told me it was better than arrays)
+        return {
+            "last_hidden_states": x,
+            "hidden_states": hidden_states,
+            "attn_weights": attention_weights,
+            "cls_tokens": cls_tokens,
+            "logits": logits
+        }
 
 
 if __name__ == '__main__':
