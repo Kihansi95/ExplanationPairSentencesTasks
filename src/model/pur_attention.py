@@ -24,7 +24,6 @@ class PositionalEncoding(nn.Module):
         pe = pe.unsqueeze(0).transpose(0, 1)
 
     def forward(self, x):
-        # TODO : check the dimension for the batch
         x = x + self.pe[:x.size(0), :]
         return self.dropout(x)
 
@@ -126,7 +125,6 @@ class PureAttention(nn.Module):
         for i, l in enumerate(self.attention_layers):
             # Compute attention : contextualization of the embeddings
             # compute the attention on the embeddings
-            # TODO : ask duc-hau for this part
             context, attn_weights = l(query=x,
                                       key=x,
                                       value=x,
