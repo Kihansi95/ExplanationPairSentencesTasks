@@ -78,7 +78,7 @@ class PureAttention(nn.Module):
                                      max_len=10000)
 
         # attention layers store attention layers in module list : keep the gradient in the graph.
-        attention_raw = kwargs.get('attention_raw', False)
+        # attention_raw = kwargs.get('attention_raw', False)
         self.attention_layers = nn.ModuleList([
             MultiheadAttention(embed_dim=d_embedding,
                                num_heads=num_heads,
@@ -95,8 +95,6 @@ class PureAttention(nn.Module):
             nn.Dropout(p=dropout)
         )
 
-        self.softmax = nn.Softmax(dim=1)
-
     def forward(self, **input_):
         """
         Args:
@@ -104,7 +102,6 @@ class PureAttention(nn.Module):
 
         Returns:
             A dictionnary for the outputs.
-
         """
         # N = batch_size
         # L = sequence_length
@@ -116,35 +113,31 @@ class PureAttention(nn.Module):
 
         # non contextual embeddings
         x = self.embedding(x)  # shape of (N, L, h)
-        log.debug(f"x before pe : {x}") # some Nan values appear in the embedding.
 
         # the positional encoding
         x = self.pe(x)
-        log.debug(f"x after pe : {x}")
 
         attention_weights = []  # each element of the list is of size (N, H, L, L)
-        hidden_states = [x]  # first we put the non-contextualized embeddings
 
         for i, l in enumerate(self.attention_layers):
             # Compute attention : contextualization of the embeddings
             # compute the attention on the embeddings
-            context, attn_weights = l(query=x,
-                                      key=x,
-                                      value=x,
-                                      key_padding_mask=mask,
-                                      average_attn_weights=False)
-            hidden_states.append(context)
-            attention_weights.append(attn_weights)
-            x = context  # update the different embeddings
+            x, attn_weights = l(query=x,
+                                key=x,
+                                value=x,
+                                key_padding_mask=mask,
+                                average_attn_weights=False)
+
+            attention_weights.append(attn_weights) # we add the different attention weights while we progress.
 
         # cls token of the last hidden state
         cls_tokens = x[:, 0, :]
+        #log.debug(f"cls_tok : {cls_tokens}")
 
         logits = self.classifier(cls_tokens)
 
         return {
             "last_hidden_states": x,
-            "hidden_states": hidden_states,
             "attn_weights": attention_weights,
             "cls_tokens": cls_tokens,
             "logits": logits

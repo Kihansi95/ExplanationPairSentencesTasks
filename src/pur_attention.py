@@ -111,7 +111,7 @@ class AttitModel(pl.LightningModule):
         return self.model(ids=ids, mask=mask)
 
     def configure_optimizers(self):
-        optimizer = optim.Adam(self.parameters())
+        optimizer = optim.Adam(self.parameters(), lr=5e-10)
         return optimizer
 
     def training_step(self, batch, batch_idx, val=False):
@@ -124,7 +124,6 @@ class AttitModel(pl.LightningModule):
 
         # training part
         y_hat = output_model["logits"]
-        log.debug(f"y_hat : {y_hat}")
         loss_classif = self.loss_fn(y_hat, y_true)
 
         # construction of the attention map with a
