@@ -169,9 +169,10 @@ class ESNLIDM(pl.LightningDataModule):
         if self.pur_attention:
             # we change here the shape of the dictionnary b
             # concatenation for one sentence.
-            cls_ids = torch.tensor([self.vocab[CLS_TOK]]).repeat(self.batch_size, 1)
-            cls_padding = torch.tensor([1.]).repeat(self.batch_size, 1)
-            att_padding = torch.tensor([0.]).repeat(self.batch_size, 1)
+            t = b["premise_ids"].shape[0]
+            cls_ids = torch.tensor([self.vocab[CLS_TOK]]).repeat(t, 1)
+            cls_padding = torch.tensor([0.]).repeat(t, 1)
+            att_padding = torch.tensor([0.]).repeat(t, 1)
             num = torch.log(b['a_true']['premise'].sum(dim=-1) + b['a_true']['hypothesis'].sum(dim=-1))
             # min 1 for the <cls> token at the end
             den = torch.log(b['padding_mask']['premise'].sum(dim=-1) + b['padding_mask']['hypothesis'].sum(dim=-1) - 1)
@@ -183,7 +184,6 @@ class ESNLIDM(pl.LightningDataModule):
                 'a_true': torch.cat((att_padding, b['a_true']['premise'], b['a_true']['hypothesis']), 1),
                 'y_true': b['y_true'],
                 'a_true_entropy': a_true_entropy
-
             }
             b = temp
         return b

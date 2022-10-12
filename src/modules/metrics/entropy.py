@@ -53,7 +53,7 @@ def entropy(preds: Tensor, mask: Tensor=None, normalize:bool=None, average:str=N
 	
 	Args:
 		preds (tensor): batch of vector dim-D (BxD)
-		mask (tensor): boolean or float. value (0.) where we do not want to take into entropy
+		mask (tensor): boolean, True <==> padding.
 		normalize (bool): If need to renormalize distribution
 		average (str): If none, do not average. If average = 'micro', will take the mean over batch
 
@@ -61,15 +61,15 @@ def entropy(preds: Tensor, mask: Tensor=None, normalize:bool=None, average:str=N
 
 	"""
 	if mask is None:
-		mask = torch.ones(preds.shape, dtype=torch.float).type_as(preds)
+		mask = torch.zeros(preds.shape, dtype=torch.float).type_as(preds)
 	else:
-		mask = 1 - mask.float()
+		mask = mask.float()
 	
 	if normalize:
-		preds = torch.softmax(preds - INF*(1. - mask), axis=1)
+		preds = torch.softmax(preds - INF * mask, axis=1)
 	
 	log_preds = - torch.log((preds == 0) * EPS + preds)
-	length = mask.sum(axis=1)
+	length = (1 - mask).sum(axis=1)
 	log_length = torch.log(length + (length == 1)).float() # If length == 1 -> give length = 2
 	
 	entropies = batch_dot(preds, log_preds) / log_length

@@ -3,7 +3,7 @@ from collections import OrderedDict
 import torch
 from torch import nn
 import math
-
+from torch.nn import MultiheadAttention
 from src.model.layers.attention import Attention
 from src.model.layers.fully_connected import FullyConnected
 from src.modules.logger import log
@@ -16,15 +16,16 @@ class PositionalEncoding(nn.Module):
         super(PositionalEncoding, self).__init__()
         self.dropout = nn.Dropout(p=dropout)
 
-        pe = torch.zeros(max_len, d_model)
+        self.pe = torch.zeros(max_len, d_model)
         position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
         div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
-        pe[:, 0::2] = torch.sin(position * div_term)
-        pe[:, 1::2] = torch.cos(position * div_term)
-        pe = pe.unsqueeze(0).transpose(0, 1)
+        self.pe[:, 0::2] = torch.sin(position * div_term)
+        self.pe[:, 1::2] = torch.cos(position * div_term)
+        self.pe = self.pe.unsqueeze(0).transpose(0, 1)
 
     def forward(self, x):
-        x = x + self.pe[:x.size(0), :]
+        temp = self.pe.repeat(x.size(0), 1, 1).clone().detach().to(x.device)
+        x = x + temp[x.size(1), :]
         return self.dropout(x)
 
 
@@ -79,13 +80,13 @@ class PureAttention(nn.Module):
         # attention layers store attention layers in module list : keep the gradient in the graph.
         attention_raw = kwargs.get('attention_raw', False)
         self.attention_layers = nn.ModuleList([
-            Attention(embed_dim=d_embedding,
-                      num_heads=num_heads,
-                      dropout=dropout,
-                      kdim=d_embedding,
-                      vdim=d_embedding,
-                      batch_first=True,
-                      attention_raw=attention_raw)
+            MultiheadAttention(embed_dim=d_embedding,
+                               num_heads=num_heads,
+                               dropout=dropout,
+                               kdim=d_embedding,
+                               vdim=d_embedding,
+                               batch_first=True,
+                               )
             for _ in range(num_layers)
         ])
 
@@ -115,9 +116,11 @@ class PureAttention(nn.Module):
 
         # non contextual embeddings
         x = self.embedding(x)  # shape of (N, L, h)
+        log.debug(f"x before pe : {x}") # some Nan values appear in the embedding.
 
         # the positional encoding
         x = self.pe(x)
+        log.debug(f"x after pe : {x}")
 
         attention_weights = []  # each element of the list is of size (N, H, L, L)
         hidden_states = [x]  # first we put the non-contextualized embeddings
@@ -128,7 +131,8 @@ class PureAttention(nn.Module):
             context, attn_weights = l(query=x,
                                       key=x,
                                       value=x,
-                                      key_padding_mask=mask)
+                                      key_padding_mask=mask,
+                                      average_attn_weights=False)
             hidden_states.append(context)
             attention_weights.append(attn_weights)
             x = context  # update the different embeddings
@@ -138,7 +142,6 @@ class PureAttention(nn.Module):
 
         logits = self.classifier(cls_tokens)
 
-        # for duc-hau : change here we return a dictionnary (man you told me it was better than arrays)
         return {
             "last_hidden_states": x,
             "hidden_states": hidden_states,

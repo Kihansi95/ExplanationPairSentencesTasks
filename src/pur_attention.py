@@ -10,7 +10,6 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning import callbacks as cb
 
 from torch import optim, nn
-
 from torchtext.vocab.vectors import pretrained_aliases as pretrained
 
 import torchmetrics as m
@@ -57,7 +56,8 @@ class AttitModel(pl.LightningModule):
                                    padding_idx=vocab[PAD_TOK],
                                    attention_raw=True,
                                    n_class=num_class,
-                                   d_embedding=kwargs['d_embedding'])
+                                   d_embedding=kwargs['d_embedding'],
+                                   freeze=False)
 
         # for the calculus of the attention map
         self.num_heads = num_heads
@@ -86,7 +86,7 @@ class AttitModel(pl.LightningModule):
                 'a:AUPRC': m.AveragePrecision(average='micro'),
                 'a:Jaccard': metrics.PowerJaccard(),
                 'a:Jaccard2': metrics.PowerJaccard(power=2.),
-                #'a:Dice': m.Dice(),
+                # 'a:Dice': m.Dice(),
                 'a:IoU': m.JaccardIndex(num_classes=2),
                 'a:Recall': metrics.AURecall(),
                 'a:Precision': metrics.AUPrecision(),
@@ -117,19 +117,20 @@ class AttitModel(pl.LightningModule):
     def training_step(self, batch, batch_idx, val=False):
 
         y_true = batch['y_true']
-        padding_mask = batch['padding_mask']
+        padding_mask = batch['padding_mask'].bool()
         a_true = batch['a_true']
         a_true_entropy = batch['a_true_entropy']
-
         output_model = self(ids=batch['token_ids'], mask=padding_mask)
 
         # training part
         y_hat = output_model["logits"]
+        log.debug(f"y_hat : {y_hat}")
         loss_classif = self.loss_fn(y_hat, y_true)
 
         # construction of the attention map with a
         attention_tensor = torch.stack(output_model['attn_weights'], dim=1)
-        agreg_mask = padding_mask.clone().detach().to(self.device) \
+
+        agreg_mask = (1. - padding_mask.float()).clone().detach().to(self.device) \
             .unsqueeze(1).unsqueeze(1).unsqueeze(1) \
             .repeat(1, self.num_layers, self.num_heads, batch['token_ids'].shape[1], 1)
         pad_mask = torch.transpose(agreg_mask, dim0=3, dim1=4)
@@ -137,14 +138,14 @@ class AttitModel(pl.LightningModule):
         a_hat = attention_tensor.sum(dim=1).sum(dim=1).sum(dim=1) / self.num_heads
 
         # ENTROPY
-        entropy_mask = padding_mask.clone().detach().to(self.device)
-        entropy_mask[:, 0] = 0.  # we don't take into account the CLS token
-        a_hat_entropy = metrics.entropy(a_hat, entropy_mask, normalize=True)
+        entropy_mask = padding_mask.float().clone().detach().to(self.device)
+        entropy_mask[:, 0] = 1.  # we don't take into account the CLS token
+        a_hat_entropy = metrics.entropy(a_hat, entropy_mask.bool(), normalize=True)
         loss_entropy = a_hat_entropy.mean()  # mean of the entropy over a batch
 
         # Sigmoid for IoU loss
-        flat_a_hat, flat_a_true = self.flatten_attention(a_hat=a_hat, a_true=a_true, condition=y_true > 0,
-                                                         pad_mask=entropy_mask,
+        flat_a_hat, flat_a_true = self.flatten_attention(a_hat=a_hat, a_true=a_true.int(), condition=y_true > 0,
+                                                         pad_mask=entropy_mask.bool(),
                                                          normalize='sigmoid')
 
         if flat_a_true is None:
@@ -173,7 +174,7 @@ class AttitModel(pl.LightningModule):
     # begin the build the logs
     def test_step(self, batch, batch_idx, dataloader_idx=None):
         # this function only calculate the vectors we need.
-        padding_mask = batch['padding_mask']
+        padding_mask = batch['padding_mask'].bool()
         output_model = self(ids=batch['token_ids'], mask=padding_mask)
 
         # training part
@@ -181,7 +182,7 @@ class AttitModel(pl.LightningModule):
         output_model = self(ids=batch['token_ids'], mask=batch['padding_mask'])
 
         attention_tensor = torch.stack(output_model['attn_weights'], dim=1)
-        agreg_mask = padding_mask.clone().detach().to(self.device) \
+        agreg_mask = (1 - padding_mask.float()).clone().detach().to(self.device) \
             .unsqueeze(1).unsqueeze(1).unsqueeze(1) \
             .repeat(1, self.num_layers, self.num_heads, batch['token_ids'].shape[1], 1)
         pad_mask = torch.transpose(agreg_mask, dim0=3, dim1=4)
@@ -198,19 +199,19 @@ class AttitModel(pl.LightningModule):
 
         a_hat, a_true = outputs['a_hat'], outputs['a_true']
         y_hat, y_true = outputs['y_hat'], outputs['y_true']
-        padding_mask = outputs['padding_mask']
+        padding_mask = outputs['padding_mask'].bool()
 
-        entropy_mask = padding_mask.clone().detach().to(self.device)
-        entropy_mask[:, 0] = 0.  # we don't take into account the CLS token
+        entropy_mask = padding_mask.float().clone().detach().to(self.device)
+        entropy_mask[:, 0] = 1.  # we don't take into account the CLS token
         # entropy mask : 0 where we don't want to take into account the entropy.
         # here what is the shape of the mask.
-        flat_a_hat, flat_a_true = self.flatten_attention(a_hat=a_hat, a_true=a_true, condition=y_true > 0,
-                                                         pad_mask=padding_mask, normalize='softmax_rescale')
+        flat_a_hat, flat_a_true = self.flatten_attention(a_hat=a_hat, a_true=a_true.int(), condition=y_true > 0,
+                                                         pad_mask=entropy_mask.bool(), normalize='softmax_rescale')
 
         # log attentions metrics
         if flat_a_hat is not None and a_hat.size(0) > 0:
             metric_a = self.attention_metrics[stage](flat_a_hat, flat_a_true)
-            metric_a['a:entropy'] = self.entropy_metric[stage](a_hat, padding_mask)
+            metric_a['a:entropy'] = self.entropy_metric[stage](a_hat, entropy_mask.bool())
             metric_a = {f'{stage}/{k}': v.item() for k, v in
                         metric_a.items()}  # put metrics within same stage under the same folder
             self.log_dict(metric_a, prog_bar=True)
@@ -243,7 +244,7 @@ class AttitModel(pl.LightningModule):
          a_hat ():
          a_true ():
          condition ():
-         pad_mask ():
+         pad_mask (): True <==> Padding
          y_hat ():
          normalize (str): softmax, softmax_rescale, sigmoid
 
@@ -264,10 +265,7 @@ class AttitModel(pl.LightningModule):
         if normalize == 'sigmoid':
             a_hat = torch.sigmoid(a_hat)
         if 'softmax' in normalize:
-            # TODO : regarder avec Duc-Hau mais ici on a un padding mask qui est donné dans le code
-            # la version originale c'était avec un mask à la place du 1 - mask
-            # quand le masque vaut 0 on enlève.
-            a_hat = torch.softmax(a_hat + (1 - pad_mask.float()) * -INF, dim=1)
+            a_hat = torch.softmax(a_hat + (pad_mask.float()) * -INF, dim=1)
         if 'rescale' in normalize:
             a_hat = rescale(a_hat, pad_mask)
 
@@ -373,13 +371,13 @@ def parse_argument(prog: str = __name__, description: str = 'Experimentation on 
     parser.add_argument('--dropout', type=float)
     parser.add_argument('--d_embedding', type=int, default=300,
                         help='Embedding dimension, will be needed if vector is not precised')
-    parser.add_argument('--num_layers', type=int, default=1, help='number of layers in the model')
-    parser.add_argument('--num_heads', type=int, default=1, help='number of heads on each layer')
+    parser.add_argument('--num_layers', type=int, default=2, help='number of layers in the model')
+    parser.add_argument('--num_heads', type=int, default=2, help='number of heads on each layer')
 
     # Data configuration
     parser.add_argument('--n_data', '-n', type=int, default=-1,
                         help='Maximum data number for train+val+test, -1 if full dataset. Default: -1')
-    parser.add_argument('--data', '-d', type=str, default="esnli", help='Choose dataset to train model')
+    parser.add_argument('--data', '-d', type=str, default="hatexplain", help='Choose dataset to train model')
 
     # Regularizer
     parser.add_argument('--lambda_entropy', type=float, default=0., help='multiplier for entropy')
