@@ -378,7 +378,7 @@ def parse_argument(prog: str = __name__, description: str = 'Experimentation on 
     # Data configuration
     parser.add_argument('--n_data', '-n', type=int, default=-1,
                         help='Maximum data number for train+val+test, -1 if full dataset. Default: -1')
-    parser.add_argument('--data', '-d', type=str, default="hatexplain", help='Choose dataset to train model')
+    parser.add_argument('--data', '-d', type=str, default="esnli", help='Choose dataset to train model')
 
     # Regularizer
     parser.add_argument('--lambda_entropy', type=float, default=0., help='multiplier for entropy')

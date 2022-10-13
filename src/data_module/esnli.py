@@ -178,7 +178,7 @@ class ESNLIDM(pl.LightningDataModule):
 			att_padding = torch.tensor([0.]).repeat(t, 1)
 			num = torch.log(b['a_true']['premise'].sum(dim=-1) + b['a_true']['hypothesis'].sum(dim=-1))
 			# min 1 for the <cls> token at the end
-			den = torch.log((~b['padding_mask']['premise']).sum(dim=-1) + (~b['padding_mask']['hypothesis']).sum(dim=-1) - 1)
+			den = torch.log((~b['padding_mask']['premise']).sum(dim=-1) + (~b['padding_mask']['hypothesis']).sum(dim=-1))
 			a_true_entropy = num / den
 			temp = {
 				'token_ids': torch.cat((cls_ids, b['premise_ids'], b['hypothesis_ids']), 1),

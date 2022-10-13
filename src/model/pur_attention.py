@@ -78,7 +78,8 @@ class PureAttention(nn.Module):
                                      max_len=10000)
 
         # attention layers store attention layers in module list : keep the gradient in the graph.
-        # attention_raw = kwargs.get('attention_raw', False)
+        attention_raw = kwargs.get('attention_raw', False)
+        # TODO : check where is the problem in the gradient.
         self.attention_layers = nn.ModuleList([
             MultiheadAttention(embed_dim=d_embedding,
                                num_heads=num_heads,
@@ -115,7 +116,7 @@ class PureAttention(nn.Module):
         x = self.embedding(x)  # shape of (N, L, h)
 
         # the positional encoding
-        x = self.pe(x)
+        #x = self.pe(x)
 
         attention_weights = []  # each element of the list is of size (N, H, L, L)
 
