@@ -142,16 +142,12 @@ class HateXPlainDM(pl.LightningDataModule):
 			cls_ids = torch.tensor([self.vocab[CLS_TOK]]).repeat(t, 1)
 			cls_padding = torch.tensor([0.]).repeat(t, 1)  # we contextualise the CLS token
 			att_padding = torch.tensor([0.]).repeat(t, 1)
-			num = torch.log(b['a_true'].sum(dim=-1))
-			# -1 for the cls token
-			den = torch.log(b['padding_mask'].sum(dim=-1) - 1)
-			a_true_entropy = num / den
 			temp = {
 				'token_ids': torch.cat((cls_ids, b['token_ids']), 1),
 				'padding_mask': torch.cat((cls_padding, b['padding_mask']), 1),
 				'a_true': torch.cat((att_padding, b['a_true']), 1),
 				'y_true': b['y_true'],
-				'a_true_entropy': a_true_entropy
+				'a_true_entropy': b['a_true_entropy']
 			}
 			b = temp
 		
