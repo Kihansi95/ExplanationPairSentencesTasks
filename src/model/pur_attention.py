@@ -3,7 +3,7 @@ from collections import OrderedDict
 import torch
 from torch import nn
 import math
-
+from torch.nn import MultiheadAttention
 from src.model.layers.attention import Attention
 from src.model.layers.fully_connected import FullyConnected
 from src.modules.logger import log
@@ -16,16 +16,16 @@ class PositionalEncoding(nn.Module):
         super(PositionalEncoding, self).__init__()
         self.dropout = nn.Dropout(p=dropout)
 
-        pe = torch.zeros(max_len, d_model)
+        self.pe = torch.zeros(max_len, d_model)
         position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
         div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
-        pe[:, 0::2] = torch.sin(position * div_term)
-        pe[:, 1::2] = torch.cos(position * div_term)
-        pe = pe.unsqueeze(0).transpose(0, 1)
-        self.register_buffer('pe', pe)
+        self.pe[:, 0::2] = torch.sin(position * div_term)
+        self.pe[:, 1::2] = torch.cos(position * div_term)
+        self.pe = self.pe.unsqueeze(0).transpose(0, 1)
 
     def forward(self, x):
-        x = x + self.pe[:x.size(0), :]
+        temp = self.pe.repeat(x.size(0), 1, 1).clone().detach().to(x.device)
+        x = x + temp[x.size(1), :]
         return self.dropout(x)
 
 
@@ -78,24 +78,22 @@ class PureAttention(nn.Module):
                                      max_len=10000)
 
         # attention layers store attention layers in module list : keep the gradient in the graph.
-        attention_raw = kwargs.get('attention_raw', False)
+        # attention_raw = kwargs.get('attention_raw', False)
         self.attention_layers = nn.ModuleList([
-            Attention(embed_dim=d_embedding,
-                      num_heads=num_heads,
-                      dropout=dropout,
-                      kdim=d_embedding,
-                      vdim=d_embedding,
-                      batch_first=True,
-                      attention_raw=attention_raw)
-            for i in range(num_layers)
+            MultiheadAttention(embed_dim=d_embedding,
+                               num_heads=num_heads,
+                               dropout=dropout,
+                               kdim=d_embedding,
+                               vdim=d_embedding,
+                               batch_first=True,
+                               )
+            for _ in range(num_layers)
         ])
 
         self.classifier = nn.Sequential(
             nn.Linear(d_embedding, self.n_classes),
             nn.Dropout(p=dropout)
         )
-
-        self.softmax = nn.Softmax(dim=1)
 
     def forward(self, **input_):
         """
@@ -104,7 +102,6 @@ class PureAttention(nn.Module):
 
         Returns:
             A dictionnary for the outputs.
-
         """
         # N = batch_size
         # L = sequence_length
@@ -121,29 +118,26 @@ class PureAttention(nn.Module):
         x = self.pe(x)
 
         attention_weights = []  # each element of the list is of size (N, H, L, L)
-        hidden_states = [x]  # first we put the non-contextualized embeddings
 
         for i, l in enumerate(self.attention_layers):
             # Compute attention : contextualization of the embeddings
             # compute the attention on the embeddings
-            # TODO : ask duc-hau for this part
-            context, attn_weights = l(query=x,
-                                      key=x,
-                                      value=x,
-                                      key_padding_mask=mask)
-            hidden_states.append(context)
-            attention_weights.append(attn_weights)
-            x = context  # update the different embeddings
+            x, attn_weights = l(query=x,
+                                key=x,
+                                value=x,
+                                key_padding_mask=mask,
+                                average_attn_weights=False)
+
+            attention_weights.append(attn_weights) # we add the different attention weights while we progress.
 
         # cls token of the last hidden state
         cls_tokens = x[:, 0, :]
+        #log.debug(f"cls_tok : {cls_tokens}")
 
         logits = self.classifier(cls_tokens)
 
-        # for duc-hau : change here we return a dictionnary (man you told me it was better than arrays)
         return {
             "last_hidden_states": x,
-            "hidden_states": hidden_states,
             "attn_weights": attention_weights,
             "cls_tokens": cls_tokens,
             "logits": logits

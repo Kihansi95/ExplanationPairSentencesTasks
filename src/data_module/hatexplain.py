@@ -16,10 +16,9 @@ from modules import env
 from modules.logger import log
 
 class HateXPlainDM(pl.LightningDataModule):
-	
 	name='HateXPlain'
 	
-	def __init__(self, cache_path, batch_size=8, num_workers=0, n_data=-1):
+	def __init__(self, cache_path, batch_size=8, num_workers=0, n_data=-1, pur_attention: bool = False):
 		super().__init__()
 		self.cache_path = cache_path
 		self.batch_size = batch_size
@@ -28,12 +27,10 @@ class HateXPlainDM(pl.LightningDataModule):
 		self.num_workers = num_workers
 		self.num_class = HateXPlain.NUM_CLASS
 		self.input_type = HateXPlain.INPUT
+		self.pur_attention = pur_attention
 	
 	def prepare_data(self):
 		# called only on 1 GPU
-		
-		# Avoid preparing twice
-		if hasattr(self, 'vocab') and self.vocab is not None: return
 		
 		# download_dataset()
 		dataset_path = HateXPlain.root(self.cache_path)
@@ -114,9 +111,6 @@ class HateXPlainDM(pl.LightningDataModule):
 	def test_dataloader(self):
 		return DataLoader(self.test_set, batch_size=self.batch_size, shuffle=False, collate_fn=self.collate, num_workers=self.num_workers)
 	
-	def predict_dataloader(self):
-		return self.test_dataloader()
-	
 	## ======= PRIVATE SECTIONS ======= ##
 	def collate(self, batch):
 		# prepare batch of data for dataloader
@@ -130,6 +124,25 @@ class HateXPlainDM(pl.LightningDataModule):
 		
 		b['padding_mask'] = b['token_ids'] == self.vocab[PAD_TOK]
 		b['a_true_entropy'] = self.entropy_transform(b['a_true'], b['padding_mask'])
+		if self.pur_attention:
+			t = b["token_ids"].shape[0]
+			# some changes for the pur attention model.
+			cls_ids = torch.tensor([self.vocab[CLS_TOK]]).repeat(t, 1)
+			cls_padding = torch.tensor([0.]).repeat(t, 1)  # we contextualise the CLS token
+			att_padding = torch.tensor([0.]).repeat(t, 1)
+			num = torch.log(b['a_true'].sum(dim=-1))
+			# -1 for the cls token
+			den = torch.log(b['padding_mask'].sum(dim=-1) - 1)
+			a_true_entropy = num / den
+			temp = {
+				'token_ids': torch.cat((cls_ids, b['token_ids']), 1),
+				'padding_mask': torch.cat((cls_padding, b['padding_mask']), 1),
+				'a_true': torch.cat((att_padding, b['a_true']), 1),
+				'y_true': b['y_true'],
+				'a_true_entropy': a_true_entropy
+			}
+			b = temp
+		
 		return b
 	
 	def list2dict(self, batch):
