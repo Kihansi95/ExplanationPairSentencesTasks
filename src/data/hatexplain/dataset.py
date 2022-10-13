@@ -89,11 +89,6 @@ def _reformat_dataframe(data: pandas.DataFrame, split):
 	data = data.drop(columns='len_tokens')
 	
 	# heuristic
-	post_tokens = data['post_tokens'].tolist()
-	
-	## make pos filter
-	spacy_model = spacy.load('en_core_web_sm')
-	
 	heuristic_transform = HeuristicTransform(
 		batch_tokens=data['text_tokens'],
 		batch_rationale=data['rationale'],
