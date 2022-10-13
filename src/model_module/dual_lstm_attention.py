@@ -69,7 +69,7 @@ class DualLSTMAttentionModule(pl.LightningModule):
 				'a:AURecall': metrics.AURecall(),
 				'a:AUPrecision': metrics.AUPrecision(),
 				'a:Jaccard': metrics.PowerJaccard(),
-				'a:Jaccard2': metrics.PowerJaccard(power=2.),
+				'a:Specificity': m.Specificity(),
 				'a:Dice': m.Dice(),
 				'a:IoU': m.JaccardIndex(num_classes=2),
 			})

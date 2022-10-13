@@ -47,8 +47,7 @@ class PairLstmAttention(Net):
 		d_attn = kwargs.get('d_attn', d_hidden_lstm)
 		
 		attention_raw = kwargs.get('attention_raw', False)
-		self.attention = Attention(embed_dim=d_hidden_lstm, num_heads=num_heads, dropout=dropout, kdim=d_attn, vdim=d_attn,
-		                                 attention_raw=attention_raw)
+		self.attention = Attention(embed_dim=d_hidden_lstm, num_heads=num_heads, dropout=dropout, kdim=d_attn, vdim=d_attn, attention_raw=attention_raw)
 		d_context = d_hidden_lstm
 		d_concat = 2 * d_context
 		
@@ -56,9 +55,7 @@ class PairLstmAttention(Net):
 		self.fc_squeeze = FullyConnected(d_concat, d_fc_out, activation=activation, dropout=dropout)
 		
 		n_fc_out = kwargs.get('n_fc_out', 0)
-		self.fc_out = nn.ModuleList([
-			FullyConnected(d_fc_out, d_fc_out, activation=activation, dropout=dropout) for _ in range(n_fc_out)
-		])
+		self.fc_out = nn.ModuleList([ FullyConnected(d_fc_out, d_fc_out, activation=activation, dropout=dropout) for _ in range(n_fc_out)])
 		
 		self.classifier = nn.Sequential(
 			nn.Linear(d_fc_out, self.n_classes),

@@ -2,10 +2,13 @@ import os
 import shutil
 
 import datasets
+import pandas
 import pandas as pd
 from os import path
 
+import spacy
 from datasets import load_dataset
+from spacy.tokens import Doc
 
 from torch.utils.data import MapDataPipe
 
@@ -48,7 +51,7 @@ def download_format_dataset(root: str, split: str):
 	dataset = load_dataset(DATASET_NAME, split=huggingface_split, cache_dir=root)
 	
 	# Correct the example
-	df = _reformat_dataframe(dataset, split)
+	df = _reformat_dataframe(dataset.to_pandas(), split)
 	df.to_parquet(parquet_path)
 	log.info(f'Process {split} and saved at {parquet_path}')
 	
@@ -61,36 +64,71 @@ def clean_cache(root: str):
 		if fname.endswith('.lock'): os.remove(os.path.join(root, fname))
 	
 	
-def _reformat_dataframe(dataset: datasets.Dataset, split):
-	df = dataset.to_pandas()
+def _reformat_dataframe(data: pandas.DataFrame, split):
 	
 	# Correct 1 example in train set
 	if split == 'train':
-		rationales = df.loc[1997, 'rationales']
-		L = len(df.loc[1997, 'post_tokens'])
+		rationales = data.loc[1997, 'rationales']
+		L = len(data.loc[1997, 'post_tokens'])
 		rationales = [r[:L] for r in rationales]
-		df.loc[1997, 'rationales'] = rationales
+		data.loc[1997, 'rationales'] = rationales
 	
 	# gold label = most voted label
-	df['label'] = df.annotators.apply(lambda x: np.bincount(x['label']).argmax())
+	data['label'] = data.annotators.apply(lambda x: np.bincount(x['label']).argmax())
 	# rationale = average rationaled then binarize by 0.5 threshold
-	df['rationale'] = df.rationales.apply(lambda x: (np.mean([r.astype(float) for r in x], axis=0) >= 0.5).astype(int) if len(x) > 0 else x)
+	data['rationale'] = data.rationales.apply(lambda x: (np.mean([r.astype(float) for r in x], axis=0) >= 0.5).astype(int) if len(x) > 0 else x)
 	
 	# put back label into text
 	int2str = ['hatespeech', 'normal', 'offensive']  # huggingface's label
-	df['label'] = df.label.apply(lambda x: int2str[x]).astype('category')
+	data['label'] = data.label.apply(lambda x: int2str[x]).astype('category')
 	
 	# make rationale for negative example, for padding coherent
-	df['len_tokens'] = df.post_tokens.str.len()
-	df['rationale'] = df.apply(lambda row: np.zeros(row['len_tokens'], dtype=np.int32) if len(row['rationale']) == 0 else row['rationale'], axis=1)
-	df = df.drop(columns='len_tokens')
+	data['len_tokens'] = data.post_tokens.str.len()
+	data['rationale'] = data.apply(lambda row: np.zeros(row['len_tokens'], dtype=np.int32) if len(row['rationale']) == 0 else row['rationale'], axis=1)
+	data = data.drop(columns='len_tokens')
+	
+	# heuristic
+	post_tokens = data['post_tokens'].tolist()
+	
+	## make pos filter
+	spacy_model = spacy.load('en_core_web_sm')
+	docs = [Doc(spacy_model.vocab, words=sent) for sent in post_tokens]
+	tokenized_docs = list(spacy_model.pipe(docs))
+	pos = [[tk.pos_ for tk in d] for d in tokenized_docs]
+	data['pos_tag'] = pd.Series(pos)
+	pos_filter = [[tk.pos_ in ['ADJ'] for tk in d] for d in docs]
+	stop_filter = [[not tk.is_stop for tk in d] for d in docs]
+	mask = [pos_ and stop_ for pos_, stop_ in zip(pos_filter, stop_filter)]
+	
+	## Count words
+	token_freq = dict()
+	flatten_token = [tk for sent in post_tokens for tk in sent]
+	flatten_rationale = [r for sent in post_tokens for r in sent]
+	
+	for t, r in zip(flatten_token, flatten_rationale):
+		if r: token_freq[t] = token_freq.get(t, 0) + 1
+	
+	total_freq = sum(token_freq.values())
+	token_freq = {k: v / total_freq for k, v in token_freq.items()}
+	
+	## build heuristics
+	heuristics = []
+	for sent_tokens, sent_mask in zip(post_tokens, mask):
+		heuris_map = [token_freq.get(tk, 0) for tk in sent_tokens]
+		heuris_map = [h * float(m) for h, m in zip(heuris_map, sent_mask)]
+		sum_heuris = max(sum(heuris_map), 1)
+		heuris_map = [h / sum_heuris for h, m in zip(heuris_map, sent_mask)]
+		heuristics.append(heuris_map)
+		
+	data['heuristic'] = pd.Series(heuristics)
+	
+	data = data.drop(columns=['annotators', 'rationales', 'id'])
 	
 	# put back rationale and token into list
-	df['rationale'] = df.rationale.apply(lambda x: x.tolist())
-	df['post_tokens'] = df.post_tokens.apply(lambda x: x.tolist())
+	data['rationale'] = data.rationale.apply(lambda x: x.tolist())
+	data['post_tokens'] = data.post_tokens.apply(lambda x: x.tolist())
 	
-	df = df.drop(columns=['annotators', 'rationales', 'id'])
-	return df
+	return data
 
 
 class HateXPlain(MapDataPipe):

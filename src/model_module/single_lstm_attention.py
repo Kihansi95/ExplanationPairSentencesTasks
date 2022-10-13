@@ -24,6 +24,7 @@ class SingleLSTMAttentionModule(pl.LightningModule):
 	             lambda_entropy:float = 0.,
 	             lambda_supervise:float = 0.,
 	             lambda_lagrange:float = 0.,
+	             lambda_heuristic:float = 0.,
 	             data='Unk data',
 	             num_class=-1,
 	             n_lstm=1,
@@ -58,6 +59,7 @@ class SingleLSTMAttentionModule(pl.LightningModule):
 		self.lambda_entropy = lambda_entropy
 		self.lambda_supervise = lambda_supervise
 		self.lambda_lagrange = lambda_lagrange
+		self.lambda_heuristic = lambda_heuristic
 		
 		self.caching_weight = None
 		
@@ -73,7 +75,7 @@ class SingleLSTMAttentionModule(pl.LightningModule):
 				'a:Recall': metrics.AURecall(),
 				'a:Precision': metrics.AUPrecision(),
 				'a:Jaccard': metrics.PowerJaccard(),
-				'a:Jaccard2': metrics.PowerJaccard(power=2.),
+				'a:Specificity': m.Specificity(),
 				'a:Dice': m.Dice(),
 				'a:IoU': m.JaccardIndex(num_classes=2),
 			})
@@ -106,6 +108,7 @@ class SingleLSTMAttentionModule(pl.LightningModule):
 		padding_mask = batch['padding_mask']
 		a_true = batch['a_true']
 		a_true_entropy = batch['a_true_entropy']
+		heuristic = batch['heuristic']
 		y_hat, a_hat = self(ids=batch['token_ids'], mask=padding_mask)
 		loss_classif = self.loss_fn(y_hat, y_true)
 		a_hat_entropy = metrics.entropy(a_hat, padding_mask, normalize=True)
@@ -121,7 +124,12 @@ class SingleLSTMAttentionModule(pl.LightningModule):
 			
 		loss_lagrange = self.lagrange_loss_fn(a_hat_entropy, a_true_entropy)
 		
-		loss = loss_classif + self.lambda_entropy * loss_entropy + self.lambda_supervise * loss_supervise + self.lambda_lagrange * loss_lagrange
+		loss_heuristic = self.heuristic_loss_fn(a_hat, heuristic)
+		
+		loss = loss_classif + self.lambda_entropy * loss_entropy \
+		       + self.lambda_supervise * loss_supervise \
+		       + self.lambda_lagrange * loss_lagrange \
+		       + self.lambda_heuristic * loss_heuristic
 		
 		return {'loss': loss, 'loss_entropy': loss_entropy, 'loss_supervise': loss_supervise, 'loss_lagrange': loss_lagrange,
 		        'y_hat': y_hat, 'y_true': y_true, 'a_hat': a_hat, 'a_true': a_true, 'padding_mask': padding_mask}

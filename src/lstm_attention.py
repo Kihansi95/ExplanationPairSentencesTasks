@@ -1,19 +1,19 @@
 import os
+from os import path
 import json
 from argparse import ArgumentParser
 
-from modules.const import InputType, Mode
-from modules.logger import log, init_logging
 
+from modules.const import InputType, Mode
+from modules.logger import init_logging
+from modules.logger import log
+
+import pytorch_lightning as pl
 from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning import callbacks as cb
+from pytorch_lightning.profiler import AdvancedProfiler
 
-from data_module.esnli import ESNLIDM
-from data_module.hatexplain import HateXPlainDM
-from data_module.yelp_hat import *
-
-from model_module import DualLSTMAttentionModule
-from model_module.single_lstm_attention import SingleLSTMAttentionModule
+from model_module import DualLSTMAttentionModule, SingleLSTMAttentionModule
 
 def get_num_workers() -> int:
 	"""
@@ -48,18 +48,19 @@ def parse_argument(prog: str = __name__, description: str = 'Train LSTM-based at
 	# Optional stuff
 	parser.add_argument('--disable_log_color', action='store_true', help='Activate for console does not support coloring')
 	
-	# Training params
+	# Trainer params
 	parser.add_argument('--cache', '-o', type=str, default=path.join(os.getcwd(), '..', '.cache'), help='Path to temporary directory to store output of training process')
 	parser.add_argument('--mode', '-m', type=str, default='dev', help='Choose among [dev, exp]. "exp" will disable the progressbar')
 	parser.add_argument('--num_workers', type=int, default=get_num_workers(), help='Indicate whether we are in IGRIDA cluster mode. Default: Use all cpu cores.')
 	parser.add_argument('--accelerator', type=str, default='auto', help='Indicate whether we are in IGRIDA cluster mode. Default: Use all cpu cores.')
 	parser.add_argument('--name', type=str, help='Experimentation name. If not given, use model name instead.')
 	parser.add_argument('--version', type=str, default='default_version', help='Experimentation version')
-	
-	# For trainer setting
 	parser.add_argument('--epoch', '-e', type=int, default=1, help='Number training epoch. Default: 1')
 	parser.add_argument('--batch_size', '-b', type=int, default=32, help='Number of data in batch. Default: 32')
 	parser.add_argument('--strategy', '-s', type=str, help='')
+	parser.add_argument('--fast_dev_run', action='store_true')
+	parser.add_argument('--detect_anomaly', action='store_true')
+	parser.add_argument('--track_grad_norm', type=int, default=-1)
 	
 	# Model configuration
 	parser.add_argument('--vectors', type=str, help='Pretrained vectors. See more in torchtext Vocab, example: glove.840B.300d')
@@ -72,9 +73,19 @@ def parse_argument(prog: str = __name__, description: str = 'Train LSTM-based at
 	parser.add_argument('--n_data', '-n', type=int, default=-1, help='Maximum data number for train+val+test, -1 if full dataset. Default: -1')
 	parser.add_argument('--data', '-d', type=str, help='Choose dataset to train model')
 	
+	# Predict configuration
+	parser.add_argument('--test_path', type=str, help='Path to which model give output score')
+	
+	# Pipeline
+	parser.add_argument('--train', action='store_true')
+	parser.add_argument('--test', action='store_true')
+	parser.add_argument('--predict', action='store_true')
+	
+	
 	# Regularizer
 	parser.add_argument('--lambda_entropy', type=float, default=0., help='multiplier for entropy')
-	parser.add_argument('--lambda_supervise', type=float, default=0., help='multiplier for supervise')
+	parser.add_argument('--lambda_supervise', type=float, default=0., help='multiplier for supervise loss')
+	parser.add_argument('--lambda_heuristic', type=float, default=0., help='multiplier for heuristic loss')
 	parser.add_argument('--lambda_lagrange', type=float, default=0., help='multiplier for relaxation of Lagrange (Supervision by entropy)')
 	
 	params = parser.parse_args()
@@ -88,6 +99,9 @@ if __name__ == '__main__':
 	
 	args = parse_argument()
 	
+	if not (args.train or args.test or args.predict):
+		args.train = True
+	
 	DATA_CACHE = path.join(args.cache, 'dataset')
 	MODEL_CACHE = path.join(args.cache, 'models')
 	LOGS_CACHE = path.join(args.cache, 'logs')
@@ -97,28 +111,34 @@ if __name__ == '__main__':
 		init_logging(cache_path=LOGS_CACHE, color=False, experiment=args.name, version=args.version)
 	else:
 		init_logging(color=True)
-		
+	
 	dm_kwargs = dict(cache_path=DATA_CACHE,
-			batch_size=args.batch_size,
-			num_workers=args.num_workers,
-			n_data=args.n_data)
+	                 batch_size=args.batch_size,
+	                 num_workers=args.num_workers,
+	                 n_data=args.n_data)
 	
 	if args.data == 'hatexplain':
+		from data_module.hatexplain import HateXPlainDM
 		dm = HateXPlainDM(**dm_kwargs)
 	elif args.data == 'yelphat':
+		from data_module.yelp_hat import *
 		dm = YelpHatDM(**dm_kwargs)
 	elif args.data == 'yelphat50':
+		from data_module.yelp_hat import *
 		dm = YelpHat50DM(**dm_kwargs)
 	elif args.data == 'yelphat100':
+		from data_module.yelp_hat import *
 		dm = YelpHat100DM(**dm_kwargs)
 	elif args.data == 'yelphat200':
+		from data_module.yelp_hat import *
 		dm = YelpHat200DM(**dm_kwargs)
 	elif args.data == 'esnli':
+		from data_module.esnli import ESNLIDM
 		dm = ESNLIDM(**dm_kwargs)
 	else:
 		log.error(f'Unrecognized dataset: {args.data}')
 		exit(1)
-		
+	
 	# prepare data here before going to multiprocessing
 	dm.prepare_data()
 	model_args = dict(
@@ -128,6 +148,7 @@ if __name__ == '__main__':
 		lambda_entropy=args.lambda_entropy,
 		lambda_supervise=args.lambda_supervise,
 		lambda_lagrange=args.lambda_lagrange,
+		lambda_heuristic=args.lambda_heuristic,
 		pretrained_vectors=args.vectors,
 		n_lstm=args.n_lstm,
 		d_hidden_lstm=args.d_hidden_lstm,
@@ -137,20 +158,17 @@ if __name__ == '__main__':
 	)
 	
 	if dm.input_type == InputType.SINGLE:
-		model = SingleLSTMAttentionModule(**model_args)
+		ModelModule = SingleLSTMAttentionModule
 	elif dm.input_type == InputType.DUAL:
-		model = DualLSTMAttentionModule(**model_args)
+		ModelModule = DualLSTMAttentionModule
 	else:
 		msg = f'Unknown input type of dm {str(dm)}: {dm.input_type}'
 		log.error(msg)
 		raise ValueError(msg)
 	
 	# call back
-	early_stopping = cb.EarlyStopping('VAL/loss', patience=5, verbose=args.mode != Mode.EXP, mode='min')  # stop if no improvement withing 10 epochs
-	model_checkpoint = cb.ModelCheckpoint(
-		filename='best',
-		monitor='VAL/loss', mode='min',  # save the minimum val_loss
-	)
+	early_stopping = cb.EarlyStopping('VAL/loss', patience=3, verbose=args.mode != Mode.EXP, mode='min')  # stop if no improvement withing 10 epochs
+	model_checkpoint = cb.ModelCheckpoint(filename='best', monitor='VAL/loss', mode='min')  # save the minimum val_loss
 	
 	# logger
 	logger = TensorBoardLogger(
@@ -160,6 +178,8 @@ if __name__ == '__main__':
 		default_hp_metric=False # deactivate hp_metric on tensorboard visualization
 	)
 	
+	#profiler = AdvancedProfiler(filename='advance_profiler')
+	
 	trainer = pl.Trainer(
 		max_epochs=args.epoch,
 		accelerator=args.accelerator,  # auto use gpu
@@ -168,32 +188,57 @@ if __name__ == '__main__':
 		default_root_dir=LOGS_CACHE,
 		logger=logger,
 		strategy=args.strategy,
-		# fast_dev_run=True,
+		fast_dev_run=args.fast_dev_run,
 		callbacks=[early_stopping, model_checkpoint],
-		# auto_scale_batch_size=True,
-		#track_grad_norm=2,
-		# detect_anomaly=True # deactivate on large scale experiemnt
+		track_grad_norm=args.track_grad_norm, # track_grad_norm=2 for debugging
+		detect_anomaly=args.detect_anomaly, # deactivate on large scale experiemnt
+		#profiler=profiler
 	)
 	
-	trainer.fit(model, datamodule=dm)
+	# Set up output path
+	ckpt_path = path.join(logger.log_dir, 'checkpoints', 'best.ckpt')
+	hparams_path = path.join(logger.log_dir, 'hparams.yaml')
 	
-	scores = trainer.test(
-		ckpt_path='best',
-	    datamodule=dm
-	)
+	if args.train:
+		model = ModelModule(**model_args)
+		trainer.fit(model, datamodule=dm)
 	
-	# remove 'TEST/' from score dicts:
-	scores = [ {k.replace('TEST/', ''): v for k, v in s.items()} for s in scores ]
+	else:
+		model = ModelModule.load_from_checkpoint(checkpoint_path=ckpt_path, hparams_file=hparams_path, **model_args)
 	
-	for idx, score in enumerate(scores):
-		log.info(score)
-		logger.log_metrics(score)
+	if args.train or args.test:
 		
-		score_path = path.join(logger.log_dir, f'score{"" if idx == 0 else "_" + str(idx)}.json')
+		scores = trainer.test(
+			model=model,
+			datamodule=dm,
+		)
 		
-		with open(score_path, 'w') as fp:
-			json.dump(score, fp, indent='\t')
-			log.info(f'Score is saved at {score_path}')
+		# remove 'TEST/' from score dicts:
+		scores = [{k.replace('TEST/', ''): v for k, v in s.items()} for s in scores]
+		
+		for idx, score in enumerate(scores):
+			log.info(score)
+			logger.log_metrics(score)
+			
+			score_dir = args.test_path or logger.log_dir
+			os.makedirs(score_dir, exist_ok=True)
+			score_path = path.join(score_dir, f'score{"" if idx == 0 else "_" + str(idx)}.json')
+			
+			with open(score_path, 'w') as fp:
+				json.dump(score, fp, indent='\t')
+				log.info(f'Score is saved at {score_path}')
 	
-	print('Done')
-	
+	if args.predict:
+		# TODO complete: make a new parquet file to save predictions along dataset
+		predictions = trainer.predict(
+			model=model,
+			datamodule=dm
+		)
+		
+		log.warn('Prediction incompleted')
+		predict_path = path.join(logger.log_dir, f'predict.txt')
+		
+		with open(predict_path, 'w') as fp:
+			fp.write(predictions)
+			log.info(f'Predictions are saved at {predict_path}')
+		

@@ -4,7 +4,6 @@ import shutil
 import pandas as pd
 from os import path
 
-import spacy
 from sklearn.model_selection import train_test_split
 
 from torch.utils.data import MapDataPipe
@@ -59,8 +58,7 @@ def download_format_dataset(root: str, split: str='yelp'):
 	
 	# If path exists already, ignore doing things
 	parquet_path = path.join(root, _EXTRACTED_FILES[split])
-	if path.exists(parquet_path):
-		return parquet_path
+	if path.exists(parquet_path): return parquet_path
 	
 	# Place .csv files at the level of dataset
 	for f in files: shutil.copy2(f, extracted_path)
@@ -124,8 +122,7 @@ def download_format_dataset(root: str, split: str='yelp'):
 	val_df.to_parquet(path.join(root, _EXTRACTED_FILES['val']))
 	log.info(f'Save validation dataset at {path.join(root, _EXTRACTED_FILES["val"])}')
 	
-	parquet_path = path.join(root, _EXTRACTED_FILES[split])
-	return pd.read_parquet(parquet_path)
+	return path.join(root, _EXTRACTED_FILES[split])
 	
 
 def clean_cache(root: str):
@@ -167,13 +164,11 @@ class YelpHat(MapDataPipe):
 		self.split = split
 		
 		# download and prepare csv file if not exist
-		self.data = download_format_dataset(root=root, split=split)
-		if isinstance(self.data, str):
-			self.parquet_path = str(self.data)
-			
-			# load the csv file to data
-			self.data = pd.read_parquet(self.parquet_path)
-			log.info(f'Load dataset from {self.parquet_path}')
+		self.parquet_path = download_format_dataset(root=root, split=split)
+		
+		# load the csv file to data
+		self.data = pd.read_parquet(self.parquet_path)
+		log.info(f'Load dataset from {self.parquet_path}')
 		
 		# if n_data activated, reduce the dataset equally for each class
 		if n_data > 0:
