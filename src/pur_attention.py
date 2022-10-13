@@ -159,7 +159,9 @@ class AttitModel(pl.LightningModule):
                self.lambda_supervise * loss_supervise + \
                self.lambda_lagrange * loss_lagrange
 
-        return {'loss': loss, 'loss_entropy': loss_entropy, 'loss_supervise': loss_supervise,
+        return {'loss': loss,
+                'loss_entropy': loss_entropy,
+                'loss_supervise': loss_supervise,
                 'loss_lagrange': loss_lagrange,
                 'y_hat': y_hat, 'y_true': y_true, 'a_hat': a_hat, 'a_true': a_true, 'padding_mask': padding_mask}
 
