@@ -15,7 +15,7 @@ from modules.logger import log
 from modules import metrics, rescale, INF
 
 from model.lstm_attention import LstmAttention
-from modules.loss import IoU
+from modules.loss import IoU, KLDivLoss
 
 
 class SingleLSTMAttentionModule(pl.LightningModule):
@@ -52,6 +52,7 @@ class SingleLSTMAttentionModule(pl.LightningModule):
 		self.loss_fn = nn.CrossEntropyLoss()
 		self.supervise_loss_fn = IoU()
 		self.lagrange_loss_fn = nn.MSELoss()
+		self.heuristic_loss_fn = KLDivLoss(reduction='batchmean', log_target=True)
 		
 		self.num_class = num_class
 		self.vocab = vocab
@@ -124,14 +125,18 @@ class SingleLSTMAttentionModule(pl.LightningModule):
 			
 		loss_lagrange = self.lagrange_loss_fn(a_hat_entropy, a_true_entropy)
 		
-		loss_heuristic = self.heuristic_loss_fn(a_hat, heuristic)
+		loss_heuristic = self.heuristic_loss_fn(a_hat.log_softmax(dim=1), heuristic)
 		
 		loss = loss_classif + self.lambda_entropy * loss_entropy \
 		       + self.lambda_supervise * loss_supervise \
 		       + self.lambda_lagrange * loss_lagrange \
 		       + self.lambda_heuristic * loss_heuristic
 		
-		return {'loss': loss, 'loss_entropy': loss_entropy, 'loss_supervise': loss_supervise, 'loss_lagrange': loss_lagrange,
+		return {'loss': loss,
+		        'loss_entropy': loss_entropy,
+		        'loss_supervise': loss_supervise,
+		        'loss_lagrange': loss_lagrange,
+		        'loss_heuristic': loss_heuristic,
 		        'y_hat': y_hat, 'y_true': y_true, 'a_hat': a_hat, 'a_true': a_true, 'padding_mask': padding_mask}
 	
 	def validation_step(self, batch, batch_idx):

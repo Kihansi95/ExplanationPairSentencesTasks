@@ -15,6 +15,7 @@ from torch.utils.data import MapDataPipe
 import numpy as np
 
 from data import ArgumentError
+from data.hatexplain.transforms import HeuristicTransform
 from modules.const import InputType
 from modules.logger import log
 
@@ -92,41 +93,22 @@ def _reformat_dataframe(data: pandas.DataFrame, split):
 	
 	## make pos filter
 	spacy_model = spacy.load('en_core_web_sm')
-	docs = [Doc(spacy_model.vocab, words=sent) for sent in post_tokens]
-	tokenized_docs = list(spacy_model.pipe(docs))
-	pos = [[tk.pos_ for tk in d] for d in tokenized_docs]
-	data['pos_tag'] = pd.Series(pos)
-	pos_filter = [[tk.pos_ in ['ADJ'] for tk in d] for d in docs]
-	stop_filter = [[not tk.is_stop for tk in d] for d in docs]
-	mask = [pos_ and stop_ for pos_, stop_ in zip(pos_filter, stop_filter)]
 	
-	## Count words
-	token_freq = dict()
-	flatten_token = [tk for sent in post_tokens for tk in sent]
-	flatten_rationale = [r for sent in post_tokens for r in sent]
+	heuristic_transform = HeuristicTransform(
+		batch_tokens=data['text_tokens'],
+		batch_rationale=data['rationale'],
+		pos_filter=['NOUN', 'VERB', 'ADJ'])
 	
-	for t, r in zip(flatten_token, flatten_rationale):
-		if r: token_freq[t] = token_freq.get(t, 0) + 1
-	
-	total_freq = sum(token_freq.values())
-	token_freq = {k: v / total_freq for k, v in token_freq.items()}
-	
-	## build heuristics
-	heuristics = []
-	for sent_tokens, sent_mask in zip(post_tokens, mask):
-		heuris_map = [token_freq.get(tk, 0) for tk in sent_tokens]
-		heuris_map = [h * float(m) for h, m in zip(heuris_map, sent_mask)]
-		sum_heuris = max(sum(heuris_map), 1)
-		heuris_map = [h / sum_heuris for h, m in zip(heuris_map, sent_mask)]
-		heuristics.append(heuris_map)
+	heuristics = heuristic_transform(data['text_tokens'])
 		
 	data['heuristic'] = pd.Series(heuristics)
 	
 	data = data.drop(columns=['annotators', 'rationales', 'id'])
 	
-	# put back rationale and token into list
-	data['rationale'] = data.rationale.apply(lambda x: x.tolist())
-	data['post_tokens'] = data.post_tokens.apply(lambda x: x.tolist())
+	# put back into list
+	list_attribute = ['rationale', 'post_tokens']
+	for attribute in list_attribute:
+		data[attribute] = data[attribute].apply(lambda x: x.tolist())
 	
 	return data
 
@@ -151,8 +133,9 @@ class HateXPlain(MapDataPipe):
 		# load the parquet file to data
 		self.data = pd.read_parquet(self.parquet_path)
 		
-		self.data['post_tokens'] = self.data['post_tokens'].apply(lambda x: x.tolist())
-		self.data['rationale'] = self.data['rationale'].apply(lambda x: x.tolist())
+		list_attribute = ['rationale', 'post_tokens', 'heuristic']
+		for attribute in list_attribute:
+			self.data[attribute] = self.data[attribute].apply(lambda x: x.tolist())
 		
 		# if n_data activated, reduce the dataset equally for each class
 		if n_data > 0:

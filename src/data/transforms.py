@@ -1,9 +1,12 @@
-from typing import Union
+from typing import Union, Optional, Any
 
 import spacy
+import torch
+from torch import Tensor
 from torch.nn import Module
 
-from modules.logger import log
+from data import functional as F
+from modules.const import Normalization
 from modules.metrics import entropy
 
 
@@ -73,3 +76,48 @@ class EntropyTransform(Module):
 	
 	def __str__(self):
 		return 'entropy_transform'
+	
+	
+class NormalizationTransform(Module):
+	
+	def __init__(self, normalize: Normalization='std'):
+		super(NormalizationTransform, self).__init__()
+		self.normalize = normalize
+		
+	def forward(self, batch: Tensor):
+		
+		if self.normalize == Normalization.SOFTMAX:
+			return batch.softmax(-1)
+		
+		if self.normalize == Normalization.LOG_SOFTMAX:
+			return batch.log_softmax(-1)
+		
+		if self.normalize == Normalization.STANDARD:
+			return batch / torch.threshold(batch.sum(-1, keepdim=True), 1, 1)
+		
+		if self.normalize == Normalization.LOG_STANDARD:
+			_batch = batch / torch.threshold(batch.sum(-1, keepdim=True), 0, 1)
+			return _batch.log()
+		
+		return batch
+
+
+class ToTensor(Module):
+	r"""Convert input to torch tensor
+    
+    Note:
+        This class is an adaptaion from pytorch.transforms.ToTensor
+
+    :param padding_value: Pad value to make each input in the batch of length equal to the longest sequence in the batch.
+    :type padding_value: Optional[int]
+    :param dtype: :class:`torch.dtype` of output tensor
+    :type dtype: :class:`torch.dtype`
+    """
+	
+	def __init__(self, padding_value: Optional[int] = None, dtype: torch.dtype = torch.long):
+		super().__init__()
+		self.padding_value = padding_value
+		self.dtype = dtype
+
+	def forward(self, input: Any) -> Tensor:
+		return F.to_tensor(input, padding_value=self.padding_value, dtype=self.dtype)

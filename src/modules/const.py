@@ -14,5 +14,13 @@ class SpecToken(str, Enum):
 	PAD = '<pad>'
 	UNK = '<unk>'
 
+class Normalization(str, Enum):
+	NONE = None
+	STANDARD = 'std'
+	LOG_STANDARD = 'log_std'
+	SOFTMAX = 'softmax'
+	LOG_SOFTMAX = 'log_softmax'
+
 # Model configuration constant
+
 
