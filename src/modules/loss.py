@@ -1,6 +1,6 @@
 import torch
 from torch import Tensor
-from torch.nn.modules.loss import _Loss
+from torch.nn.modules.loss import _Loss, KLDivLoss
 
 # https://github.com/kevinzakka/pytorch-goodies/blob/master/losses.py
 from modules.logger import log
@@ -42,7 +42,26 @@ class IoU(_Loss):
 		union = torch.sum(input) + torch.sum(target) - intersection
 		jaccard_index = ((intersection + self.eps) / (union + self.eps)).mean()
 		return 1 - jaccard_index
+
+
+class KLDivLoss(KLDivLoss):
+	"""
+		Overriding Pytorch's KLDivLoss. This version we fix -inf to a very small number (-1e30) to avoid nan.
+	    Args:
+	        inf: added to the denominator for numerical stability.
+	    Returns:
+	        jacc_loss: the Jaccard loss.
+	    """
 	
+	INF = 1e30
+	
+	def __init__(self, size_average=None, reduce=None, reduction: str = 'mean', log_target: bool = False):
+		super(KLDivLoss, self).__init__(size_average, reduce, reduction, log_target)
+		
+	def forward(self, input: Tensor, target: Tensor) -> Tensor:
+		return super(KLDivLoss, self).forward(input.masked_fill(input.isinf(), -self.INF), target.masked_fill(target.isinf(), -self.INF))
+		
+
 if __name__ == '__main__':
 	from torchmetrics import JaccardIndex
 	

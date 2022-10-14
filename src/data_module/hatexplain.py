@@ -6,6 +6,7 @@ import torch
 from torch.utils.data import DataLoader
 from torchtext.vocab import build_vocab_from_iterator
 import torchtext.transforms as T
+from data import transforms as t
 from data import HateXPlain
 from tqdm import tqdm
 from os import path
@@ -13,9 +14,11 @@ from os import path
 from data.transforms import EntropyTransform
 from data_module.constant import *
 from modules import env
+from modules.const import Normalization
 from modules.logger import log
 
 class HateXPlainDM(pl.LightningDataModule):
+	
 	name='HateXPlain'
 	
 	def __init__(self, cache_path, batch_size=8, num_workers=0, n_data=-1, pur_attention: bool = False):
@@ -90,6 +93,12 @@ class HateXPlainDM(pl.LightningDataModule):
 		)
 		
 		self.entropy_transform = EntropyTransform()
+		
+		self.heuristic_transform = T.Sequential(
+			t.ToTensor(padding_value=0., dtype=torch.float),
+			t.NormalizationTransform(normalize=Normalization.LOG_STANDARD)
+		)
+		
 	
 	def setup(self, stage: str = None):
 		dataset_kwargs = dict(root=self.cache_path, n_data=self.n_data)
@@ -119,11 +128,14 @@ class HateXPlainDM(pl.LightningDataModule):
 		b = {
 			'token_ids': self.text_transform(batch['post_tokens']),
 			'a_true': self.rationale_transform(batch['rationale']),
+			'heuristic': self.heuristic_transform(batch['heuristic']),
 			'y_true': self.label_transform(batch['label'])
 		}
 		
 		b['padding_mask'] = b['token_ids'] == self.vocab[PAD_TOK]
 		b['a_true_entropy'] = self.entropy_transform(b['a_true'], b['padding_mask'])
+		
+		
 		if self.pur_attention:
 			t = b["token_ids"].shape[0]
 			# some changes for the pur attention model.
