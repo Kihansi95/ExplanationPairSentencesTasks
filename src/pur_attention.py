@@ -126,10 +126,9 @@ class AttitModel(pl.LightningModule):
         y_hat = output_model["logits"]
         loss_classif = self.loss_fn(y_hat, y_true)
 
-        # construction of the attention map with a
+        # construction of the attention map with a_hat
         attention_tensor = torch.stack(output_model['attn_weights'], dim=1)
-
-        agreg_mask = (1. - padding_mask.float()).clone().detach().to(self.device) \
+        agreg_mask = ((~padding_mask).float()).clone().detach().to(self.device) \
             .unsqueeze(1).unsqueeze(1).unsqueeze(1) \
             .repeat(1, self.num_layers, self.num_heads, batch['token_ids'].shape[1], 1)
         pad_mask = torch.transpose(agreg_mask, dim0=3, dim1=4)
@@ -183,7 +182,7 @@ class AttitModel(pl.LightningModule):
         output_model = self(ids=batch['token_ids'], mask=batch['padding_mask'])
 
         attention_tensor = torch.stack(output_model['attn_weights'], dim=1)
-        agreg_mask = (1 - padding_mask.float()).clone().detach().to(self.device) \
+        agreg_mask = ((~padding_mask).float()).clone().detach().to(self.device) \
             .unsqueeze(1).unsqueeze(1).unsqueeze(1) \
             .repeat(1, self.num_layers, self.num_heads, batch['token_ids'].shape[1], 1)
         pad_mask = torch.transpose(agreg_mask, dim0=3, dim1=4)
