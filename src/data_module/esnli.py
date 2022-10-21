@@ -72,18 +72,19 @@ class ESNLIDM(pl.LightningDataModule):
 			
 			# return a single list of tokens
 			def flatten_token(batch):
-				return [token for sentence in batch['premise_tokens'] + batch['hypothesis_tokens'] for token in
-				        sentence]
+				return [token for sentence in batch['premise_tokens'] + batch['hypothesis_tokens'] for token in sentence]
 			
-			train_set = PretransformedESNLI(transformations=self.transformations, column_name=self.rename_columns,
-			                                root=self.cache_path, split='train', n_data=self.n_data)
+			train_set = PretransformedESNLI(transformations=self.transformations,
+			                                column_name=self.rename_columns,
+			                                root=self.cache_path,
+			                                split='train',
+			                                n_data=self.n_data)
 			
 			# build vocab from train set
 			dp = train_set.batch(self.batch_size).map(self.list2dict).map(flatten_token)
 			
 			# Build vocabulary from iterator. We don't know yet how long does it take
-			iter_tokens = tqdm(iter(dp), desc='Building vocabulary', total=len(dp), unit='sents', file=sys.stdout,
-			                   disable=env.disable_tqdm)
+			iter_tokens = tqdm(iter(dp), desc='Building vocabulary', total=len(dp), unit='sents', file=sys.stdout, disable=env.disable_tqdm)
 			if env.disable_tqdm: log.info(f'Building vocabulary')
 			if not self.pur_attention:
 				vocab = build_vocab_from_iterator(iterator=iter_tokens, specials=[PAD_TOK, UNK_TOK])
@@ -94,8 +95,7 @@ class ESNLIDM(pl.LightningDataModule):
 			vocab.set_default_index(vocab[UNK_TOK])
 			
 			# Announce where we save the vocabulary
-			torch.save(vocab, vocab_path,
-			           pickle_protocol=pickle.HIGHEST_PROTOCOL)  # Use highest protocol to speed things up
+			torch.save(vocab, vocab_path,  pickle_protocol=pickle.HIGHEST_PROTOCOL)  # Use highest protocol to speed things up
 			iter_tokens.set_postfix({'path': vocab_path})
 			if env.disable_tqdm: log.info(f'Vocabulary is saved at {vocab_path}')
 			iter_tokens.close()

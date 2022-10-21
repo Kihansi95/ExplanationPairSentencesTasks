@@ -47,6 +47,7 @@ def parse_argument(prog: str = __name__, description: str = 'Train LSTM-based at
 	
 	# Optional stuff
 	parser.add_argument('--disable_log_color', action='store_true', help='Activate for console does not support coloring')
+	parser.add_argument('--OAR_ID', type=int, help='Get cluster ID to see error/output logs')
 	
 	# Trainer params
 	parser.add_argument('--cache', '-o', type=str, default=path.join(os.getcwd(), '..', '.cache'), help='Path to temporary directory to store output of training process')
@@ -72,6 +73,9 @@ def parse_argument(prog: str = __name__, description: str = 'Train LSTM-based at
 	# Data configuration
 	parser.add_argument('--n_data', '-n', type=int, default=-1, help='Maximum data number for train+val+test, -1 if full dataset. Default: -1')
 	parser.add_argument('--data', '-d', type=str, help='Choose dataset to train model')
+	
+	# Fit configuration
+	parser.add_argument('--resume', action='store_true', help='Resume training from the last checkpoint if there is')
 	
 	# Predict configuration
 	parser.add_argument('--test_path', type=str, help='Path to which model give output score')
@@ -111,6 +115,11 @@ if __name__ == '__main__':
 		init_logging(cache_path=LOGS_CACHE, color=False, experiment=args.name, version=args.version)
 	else:
 		init_logging(color=True)
+		
+	if args.OAR_ID: log.info(f'OAR_ID = {args.OAR_ID}')
+	log.info(f'OAR_NAME = {args.name}')
+	if args.resume:
+		log.warn('Resume from previous training')
 	
 	dm_kwargs = dict(cache_path=DATA_CACHE,
 	                 batch_size=args.batch_size,
@@ -179,7 +188,6 @@ if __name__ == '__main__':
 	)
 	
 	#profiler = AdvancedProfiler(filename='advance_profiler')
-	
 	trainer = pl.Trainer(
 		max_epochs=args.epoch,
 		accelerator=args.accelerator,  # auto use gpu
@@ -192,6 +200,7 @@ if __name__ == '__main__':
 		callbacks=[early_stopping, model_checkpoint],
 		track_grad_norm=args.track_grad_norm, # track_grad_norm=2 for debugging
 		detect_anomaly=args.detect_anomaly, # deactivate on large scale experiemnt
+		benchmark=False,    # benchmark = False better time in NLP
 		#profiler=profiler
 	)
 	
@@ -201,7 +210,7 @@ if __name__ == '__main__':
 	
 	if args.train:
 		model = ModelModule(**model_args)
-		trainer.fit(model, datamodule=dm)
+		trainer.fit(model, datamodule=dm, ckpt_path=ckpt_path if args.resume else None)
 	
 	else:
 		model = ModelModule.load_from_checkpoint(checkpoint_path=ckpt_path, hparams_file=hparams_path, **model_args)

@@ -6,9 +6,7 @@ import pandas
 import pandas as pd
 from os import path
 
-import spacy
 from datasets import load_dataset
-from spacy.tokens import Doc
 
 from torch.utils.data import MapDataPipe
 
@@ -90,11 +88,11 @@ def _reformat_dataframe(data: pandas.DataFrame, split):
 	
 	# heuristic
 	heuristic_transform = HeuristicTransform(
-		batch_tokens=data['text_tokens'],
+		batch_tokens=data['post_tokens'],
 		batch_rationale=data['rationale'],
 		pos_filter=['NOUN', 'VERB', 'ADJ'])
 	
-	heuristics = heuristic_transform(data['text_tokens'])
+	heuristics = heuristic_transform(data['post_tokens'].tolist())
 		
 	data['heuristic'] = pd.Series(heuristics)
 	
