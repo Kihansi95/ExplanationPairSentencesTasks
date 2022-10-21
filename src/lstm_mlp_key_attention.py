@@ -20,7 +20,7 @@ from data_module.yelp_hat import *
 from modules.logger import log, init_logging
 from modules import metrics, env, rescale, INF
 
-from model.lstm_mlp_key_attention import LstmMLPKeyAttention
+from model.lstm.lstm_mlp_key_attention import LstmMLPKeyAttention
 from modules.loss import IoU
 
 

@@ -53,7 +53,7 @@ python -m pip install -r requirements.cpu.txt
 
 2. Run an experimentation.
 ```bash
-python src/lstm_attention.py \
+python src/single_lstm_attention.py \
           --cache .cache \
           --epoch 30 \
           --batch_size 128 \

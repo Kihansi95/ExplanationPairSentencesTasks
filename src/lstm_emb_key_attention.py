@@ -20,7 +20,7 @@ from data_module.yelp_hat import *
 from modules.logger import log, init_logging
 from modules import metrics, env, rescale, INF
 
-from model.lstm_emb_key_attention import LstmEmbeddingKeyAttention
+from model.lstm.lstm_emb_key_attention import LstmEmbeddingKeyAttention
 from modules.loss import IoU
 
 
