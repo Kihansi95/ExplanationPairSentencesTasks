@@ -117,23 +117,22 @@ class AttitModel(pl.LightningModule):
     def training_step(self, batch, batch_idx, val=False):
 
         y_true = batch['y_true']
-        padding_mask = batch['padding_mask'].bool()
+        padding_mask = batch['padding_mask'].bool() # [N, L]
         a_true = batch['a_true']
         a_true_entropy = batch['a_true_entropy']
         output_model = self(ids=batch['token_ids'], mask=padding_mask)
-
         # training part
         y_hat = output_model["logits"]
         loss_classif = self.loss_fn(y_hat, y_true)
 
         # construction of the attention map with a_hat
-        attention_tensor = torch.stack(output_model['attn_weights'], dim=1)
+        attention_tensor = torch.stack(output_model['attn_weights'], dim=1)  # [N, num_layers, L, L]
         agreg_mask = ((~padding_mask).float()).clone().detach().to(self.device) \
-            .unsqueeze(1).unsqueeze(1).unsqueeze(1) \
-            .repeat(1, self.num_layers, self.num_heads, batch['token_ids'].shape[1], 1)
-        pad_mask = torch.transpose(agreg_mask, dim0=3, dim1=4)
+            .unsqueeze(1).unsqueeze(1) \
+            .repeat(1, self.num_layers, batch['token_ids'].shape[1], 1)
+        pad_mask = torch.transpose(agreg_mask, dim0=2, dim1=3)
         attention_tensor = torch.mul(attention_tensor, pad_mask)
-        a_hat = attention_tensor.sum(dim=1).sum(dim=1).sum(dim=1) / self.num_heads
+        a_hat = attention_tensor.sum(dim=1).sum(dim=1)
 
         # ENTROPY
         entropy_mask = padding_mask.float().clone().detach().to(self.device)
@@ -174,20 +173,20 @@ class AttitModel(pl.LightningModule):
     # begin the build the logs
     def test_step(self, batch, batch_idx, dataloader_idx=None):
         # this function only calculate the vectors we need.
-        padding_mask = batch['padding_mask'].bool()
+        padding_mask = batch['padding_mask'].bool()  # [N, L]
         output_model = self(ids=batch['token_ids'], mask=padding_mask)
 
         # training part
         y_hat = output_model["logits"]
-        output_model = self(ids=batch['token_ids'], mask=batch['padding_mask'])
+        output_model = self(ids=batch['token_ids'], mask=padding_mask)
 
-        attention_tensor = torch.stack(output_model['attn_weights'], dim=1)
+        attention_tensor = torch.stack(output_model['attn_weights'], dim=1)  # [N, num_layers, L, L]
         agreg_mask = ((~padding_mask).float()).clone().detach().to(self.device) \
-            .unsqueeze(1).unsqueeze(1).unsqueeze(1) \
-            .repeat(1, self.num_layers, self.num_heads, batch['token_ids'].shape[1], 1)
-        pad_mask = torch.transpose(agreg_mask, dim0=3, dim1=4)
+            .unsqueeze(1).unsqueeze(1) \
+            .repeat(1, self.num_layers, batch['token_ids'].shape[1], 1)
+        pad_mask = torch.transpose(agreg_mask, dim0=2, dim1=3)
         attention_tensor = torch.mul(attention_tensor, pad_mask)
-        a_hat = attention_tensor.sum(dim=1).sum(dim=1).sum(dim=1) / self.num_heads
+        a_hat = attention_tensor.sum(dim=1).sum(dim=1)
 
         return {'y_hat': y_hat,
                 'y_true': batch['y_true'],
