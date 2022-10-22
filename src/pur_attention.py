@@ -371,8 +371,8 @@ def parse_argument(prog: str = __name__, description: str = 'Experimentation on 
     parser.add_argument('--dropout', type=float)
     parser.add_argument('--d_embedding', type=int, default=300,
                         help='Embedding dimension, will be needed if vector is not precised')
-    parser.add_argument('--num_layers', type=int, default=2, help='number of layers in the model')
-    parser.add_argument('--num_heads', type=int, default=2, help='number of heads on each layer')
+    parser.add_argument('--num_layers', type=int, default=1, help='number of layers in the model')
+    parser.add_argument('--num_heads', type=int, default=1, help='number of heads on each layer')
 
     # Data configuration
     parser.add_argument('--n_data', '-n', type=int, default=-1,
