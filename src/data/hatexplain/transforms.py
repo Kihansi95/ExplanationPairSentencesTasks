@@ -9,15 +9,14 @@ from torch.nn import Module
 class HeuristicTransform(Module):
 	
 	def __init__(self, batch_tokens=None, batch_rationale=None, cache=None, spacy_model=spacy.load('en_core_web_sm'), pos_filter = None):
-		
+		super(HeuristicTransform, self).__init__()
 		self.spacy_model = spacy_model
 		self.POS_FILTER = pos_filter if pos_filter is not None else ['VERB', 'NOUN', 'ADJ']
 		self.cache = cache
-		self.freq_path = path.join(self.cache, 'anntation_lexical_frequency.json')
-		self.token_freq = self.token_frequency(batch_tokens, batch_rationale)
+		self.freq_path = path.join(self.cache if cache is not None else '', 'anntation_lexical_frequency.json')
+		self.token_freq = self._token_frequency(batch_tokens, batch_rationale)
 		
-		
-	def token_frequency(self, batch_tokens, batch_rationale):
+	def _token_frequency(self, batch_tokens, batch_rationale):
 		
 		if self.cache is not None and path.exists(self.freq_path):
 			with open(self.freq_path, 'r') as f:
@@ -49,7 +48,6 @@ class HeuristicTransform(Module):
 
 		docs = [Doc(self.spacy_model.vocab, words=sent) for sent in batch_tokens]
 		tokenized_docs = list(self.spacy_model.pipe(docs))
-		pos = [[tk.pos_ for tk in d] for d in tokenized_docs]
 		
 		pos_filter = [[tk.pos_ in ['ADJ'] for tk in d] for d in docs]
 		stop_filter = [[not tk.is_stop for tk in d] for d in docs]

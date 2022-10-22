@@ -7,6 +7,7 @@ import torch
 from torch.utils.data import DataLoader
 from torchtext.vocab import build_vocab_from_iterator
 import torchtext.transforms as T
+from data import transforms as t
 from tqdm import tqdm
 from os import path
 
@@ -14,6 +15,7 @@ from data.transforms import EntropyTransform
 from data.yelp_hat.spacy_pretok_dataset import SpacyPretokenizeYelpHat
 from data_module.constant import *
 from modules import env
+from modules.const import Normalization
 from modules.logger import log
 
 class YelpHatDM(pl.LightningDataModule):
@@ -97,6 +99,11 @@ class YelpHatDM(pl.LightningDataModule):
 		
 		self.entropy_transform = EntropyTransform()
 		
+		self.heuristic_transform = T.Sequential(
+			t.ToTensor(padding_value=0., dtype=torch.float),
+			t.NormalizationTransform(normalize=Normalization.LOG_STANDARD)
+		)
+		
 	def setup(self, stage: str = None):
 		dataset_kwargs = dict(root=self.cache_path, n_data=self.n_data)
 		
@@ -136,6 +143,7 @@ class YelpHatDM(pl.LightningDataModule):
 		b = {
 			'token_ids': self.text_transform(batch['text_tokens']),
 			'a_true': self.ham_transform(batch['ham']),
+			'heuristic': self.heuristic_transform(batch['heuristic']),
 			'y_true': self.label_transform(batch['label'])
 		}
 		

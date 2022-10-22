@@ -1,3 +1,4 @@
+import os
 import warnings
 
 from typing import Union
@@ -14,7 +15,7 @@ import torchmetrics as m
 
 from data_module.constant import *
 
-from model.pair_lstm_attention import PairLstmAttention
+from model.lstm.dual_lstm_attention import DualPairLstmAttention
 from modules.const import Mode
 from modules.logger import log
 from modules import metrics, rescale, INF
@@ -25,6 +26,7 @@ class DualLSTMAttentionModule(pl.LightningModule):
 	
 	def __init__(self, cache_path, mode, vocab, pretrained_vectors: Union[str, torch.tensor]=None,
 	             lambda_entropy:float = 0.,
+	             lambda_lagrange:float = 0.,
 	             lambda_supervise:float = 0.,
 	             data='Unk data',
 	             num_class=-1,
@@ -32,21 +34,23 @@ class DualLSTMAttentionModule(pl.LightningModule):
 		super(DualLSTMAttentionModule, self).__init__()
 		
 		# log hyperparameters into hparams.yaml
-		self.save_hyperparameters('data', 'n_lstm', 'lambda_entropy', 'lambda_supervise')
+		self.save_hyperparameters('data', 'n_lstm', 'lambda_entropy', 'lambda_supervise', 'lambda_lagrange')
 		self.data = data
 		
 		if pretrained_vectors is not None and isinstance(pretrained_vectors, str):
 			vector_path = path.join(cache_path, '..', '.vector_cache')
+			os.makedirs(vector_path, exist_ok=True)
 			vectors = pretrained[pretrained_vectors](cache=vector_path)
 			pretrained_vectors = [vectors[token] for token in vocab.get_itos()]
 			pretrained_vectors = torch.stack(pretrained_vectors)
 
-		self.model = PairLstmAttention(pretrained_embedding=pretrained_vectors,
-								   vocab_size=len(vocab),
-		                           d_embedding=kwargs['d_embedding'],
-		                           padding_idx=vocab[PAD_TOK],
-		                           n_class=num_class,
-		                           attention_raw=True)
+		self.model = DualPairLstmAttention(pretrained_embedding=pretrained_vectors,
+		                                   vocab_size=len(vocab),
+		                                   d_embedding=kwargs['d_embedding'],
+		                                   padding_idx=vocab[PAD_TOK],
+		                                   n_class=num_class,
+		                                   n_lstm=kwargs['n_lstm'],
+		                                   attention_raw=True)
 		
 		self.loss_fn = nn.CrossEntropyLoss()
 		self.supervise_loss_fn = IoU()

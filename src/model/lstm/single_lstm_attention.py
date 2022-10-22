@@ -6,14 +6,14 @@ from model.layers.fully_connected import FullyConnected
 from modules.logger import log
 
 
-class LstmAttention(nn.Module):
+class SingleLstmAttention(nn.Module):
 	
 	def __init__(self, d_embedding: int, padding_idx: int, vocab_size:int=None, pretrained_embedding=None, n_class=3, **kwargs):
 		"""
 		Delta model has a customized attention layers
 		"""
 		
-		super(LstmAttention, self).__init__()
+		super(SingleLstmAttention, self).__init__()
 		# Get model parameters
 		assert not(vocab_size is None and pretrained_embedding is None), 'Provide either vocab size or pretrained embedding'
 		
@@ -167,7 +167,7 @@ if __name__ == '__main__':
 	
 	y = torch.tensor(y, dtype=torch.long)
 	
-	model = LstmAttention(d_in=300, dropout=0, d_fc_lstm=-1, d_fc_attentiion=-1, d_context=-1, n_class=3, n_fc_out=0)
+	model = SingleLstmAttention(d_in=300, dropout=0, d_fc_lstm=-1, d_fc_attentiion=-1, d_context=-1, n_class=3, n_fc_out=0)
 	
 	model.train()
 	
