@@ -40,7 +40,7 @@ class AttitModel(pl.LightningModule):
         super(AttitModel, self).__init__()
 
         # log hyperparameters into hparams.yaml
-        self.save_hyperparameters('data', 'num_layers', 'lambda_entropy', 'lambda_supervise', 'lambda_lagrange')
+        self.save_hyperparameters('data', 'num_layers', 'num_heads', 'lambda_entropy', 'lambda_supervise', 'lambda_lagrange')
         self.data = data
 
         if pretrained_vectors is not None and isinstance(pretrained_vectors, str):
@@ -115,7 +115,6 @@ class AttitModel(pl.LightningModule):
         return optimizer
 
     def training_step(self, batch, batch_idx, val=False):
-
         y_true = batch['y_true']
         padding_mask = batch['padding_mask'].bool() # [N, L]
         a_true = batch['a_true']
