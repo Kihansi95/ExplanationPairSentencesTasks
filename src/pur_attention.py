@@ -35,6 +35,7 @@ class AttitModel(pl.LightningModule):
                  num_class=-1,
                  num_layers=1,
                  num_heads=1,
+                 opt="adam",
                  **kwargs):
         super(AttitModel, self).__init__()
 
@@ -63,6 +64,7 @@ class AttitModel(pl.LightningModule):
         self.num_layers = num_layers
 
         self.loss_fn = nn.CrossEntropyLoss()
+        self.opt = opt
         self.supervise_loss_fn = IoU()
         self.lagrange_loss_fn = nn.MSELoss()
 
@@ -109,8 +111,12 @@ class AttitModel(pl.LightningModule):
         return self.model(ids=ids, mask=mask)
 
     def configure_optimizers(self):
-        #optimizer = optim.Adam(self.parameters(), lr=5e-10)
-        optimizer = optim.Adam(self.parameters())
+        if self.opt == "adam":
+            #adam optimizer
+            optimizer = optim.Adam(self.parameters())
+        else:
+            # adadelta : adaptative learning
+            optimizer = optim.Adadelta(self.parameters())
         return optimizer
 
     def training_step(self, batch, batch_idx, val=False):
@@ -365,9 +371,10 @@ def parse_argument(prog: str = __name__, description: str = 'Experimentation on 
     # Model configuration
     parser.add_argument('--vectors', type=str, help='Pretrained vectors. See more in torchtext Vocab, example: glove.840B.300d')
     parser.add_argument('--dropout', type=float)
+    parser.add_argument('--opt', type=str, default='adam', help="the optimizer algorithm we use")
     parser.add_argument('--d_embedding', type=int, default=300, help='Embedding dimension, will be needed if vector is not precised')
-    parser.add_argument('--num_layers', type=int, default=2, help='number of layers in the model')
-    parser.add_argument('--num_heads', type=int, default=2, help='number of heads on each layer')
+    parser.add_argument('--num_layers', type=int, default=1, help='number of layers in the model')
+    parser.add_argument('--num_heads', type=int, default=1, help='number of heads on each layer')
 
     # Data configuration
     parser.add_argument('--n_data', '-n', type=int, default=-1, help='Maximum data number for train+val+test, -1 if full dataset. Default: -1')
@@ -452,7 +459,8 @@ if __name__ == '__main__':
         num_heads=args.num_heads,
         d_embedding=args.d_embedding,
         data=args.data,
-        num_class=dm.num_class
+        num_class=dm.num_class,
+        opt=args.opt
     )
 
     # call back
