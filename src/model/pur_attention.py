@@ -4,10 +4,9 @@ import torch
 from torch import nn
 import math
 from torch.nn import MultiheadAttention
-from src.model.layers.attention import Attention
-from src.model.layers.fully_connected import FullyConnected
-from src.modules.logger import log
-
+from model.layers.attention import Attention
+from model.layers.fully_connected import FullyConnected
+from modules.logger import log
 
 # huggin face class for the positional encoding
 class PositionalEncoding(nn.Module):

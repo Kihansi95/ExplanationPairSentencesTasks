@@ -1,19 +1,20 @@
 import torch
 from torch import nn
+import torch.nn.functional as F
 
 from model.layers.attention import Attention
 from model.layers.fully_connected import FullyConnected
 from modules.logger import log
 
 
-class SingleLstmAttention(nn.Module):
+class SingleCnnAttention(nn.Module):
 	
 	def __init__(self, d_embedding: int, padding_idx: int, vocab_size:int=None, pretrained_embedding=None, n_class=3, **kwargs):
 		"""
 		Delta model has a customized attention layers
 		"""
 		
-		super(SingleLstmAttention, self).__init__()
+		super(SingleCnnAttention, self).__init__()
 		# Get model parameters
 		assert not(vocab_size is None and pretrained_embedding is None), 'Provide either vocab size or pretrained embedding'
 		
@@ -33,25 +34,30 @@ class SingleLstmAttention(nn.Module):
 			log.debug(f'Load vector from pretraining')
 			self.embedding = nn.Embedding.from_pretrained(pretrained_embedding, freeze=freeze, padding_idx=padding_idx)
 		
-		# LSTM block
-		d_in_lstm = d_embedding
-		d_hidden_lstm = kwargs.get('d_hidden_lstm', d_in_lstm)
-		n_lstm = kwargs.get('n_lstm', 1)
-		self.lstm = nn.LSTM(input_size=d_in_lstm, hidden_size=d_hidden_lstm, num_layers=n_lstm, batch_first=True,
-		                    bidirectional=True, dropout=(n_lstm > 1) * dropout)
+		# contextualization block
+		d_in_context = d_embedding
+		c_out = 100
+		kernel_size = 5
+		n_kernel = kwargs.get('n_kernel', 1)
+		d_out_context = c_out * n_kernel
+		n_context = kwargs.get('n_context', 1) # TODO
 		
-		# Bidirectional
-		d_out_lstm = d_in_lstm * 2
+		self.conv = nn.Conv2d(
+			in_channels=1,
+			out_channels=c_out,
+			kernel_size=(kernel_size, d_in_context),
+			padding=(kernel_size//2,0)
+		)
+		self.relu = nn.ReLU()
 		
-		d_attn = kwargs.get('d_attn', d_out_lstm)
+		d_attn = kwargs.get('d_attn', d_out_context)
 		
-		# self.attention = nn.MultiheadAttention(embed_dim=d_hidden_lstm, num_heads=num_heads, dropout=dropout, kdim=d_attn, vdim=d_attn)
 		attention_raw = kwargs.get('attention_raw', False)
-		self.attention = Attention(embed_dim=d_out_lstm, num_heads=num_heads, dropout=dropout, kdim=d_attn, vdim=d_attn, batch_first=True, attention_raw=attention_raw)
-		d_context = d_out_lstm
+		self.attention = Attention(embed_dim=d_out_context, num_heads=num_heads, dropout=dropout, kdim=d_attn, vdim=d_attn, batch_first=True, attention_raw=attention_raw)
+		d_context = d_out_context
 		
 		d_fc_out = kwargs.get('d_fc_out', d_context)
-		self.fc_squeeze = FullyConnected(d_context + d_out_lstm, d_fc_out, activation=activation, dropout=dropout)
+		self.fc_squeeze = FullyConnected(d_context + d_out_context, d_fc_out, activation=activation, dropout=dropout)
 		
 		n_fc_out = kwargs.get('n_fc_out', 0)
 		self.fc_out = nn.ModuleList([
@@ -65,8 +71,6 @@ class SingleLstmAttention(nn.Module):
 		
 		self.softmax = nn.Softmax(dim=1)
 		
-		# Constants
-		self.d = 1 + int(self.lstm.bidirectional)
 		
 	
 	def forward(self, **input_):
@@ -85,23 +89,31 @@ class SingleLstmAttention(nn.Module):
 		x = input_['ids']
 		mask = input_.get('mask', torch.zeros_like(x))
 		
-		# Reproduce hidden representation from LSTM
-		x = self.embedding(x)
+		# Reproduce hidden representation from CNN
+		x = self.embedding(x)                       # (B, L, h)
+		x = x.unsqueeze(1)                          # (B, C_in, L, h)
 		
-		self.lstm.flatten_parameters()  # flatten parameters for data parallel
-		h_seq, (h_last, _) = self.lstm(x) # h_seq.shape???
+		h_seq = self.conv(x)                        # (B, C_out, L, 1)
+		h_seq = self.relu(h_seq)
+		h_seq = h_seq.squeeze(-1)                   # (B, C_out, L)
 		
-		h_last = h_last[-self.d:].permute(1, 0, 2)      # (N, n_direction, d_hidden_lstm)
-		h_last = h_last.reshape(h_last.size(0), 1, -1)  # (N, 1, n_direction * d_hidden_lstm)
+		# Get context vector by using max_pooling
+		h_context = F.max_pool1d(h_seq, h_seq.size(-1))  # (B, C_out, 1)
+		#h_context = h_context.squeeze(-1)           # (B, C_out)
+		
+		# Reswapping dimension for attention
+		h_seq = h_seq.permute(0,2,1)                # (B, L, C_out)
+		h_context = h_context.permute(0,2,1)        # (B, 1, C_out)
 		
 		# Compute attention
 		# context.size() == (N, 1, d_attention)
 		# attn_weight.size() == (N, 1, L)
-		context, attn_weights = self.attention(query=h_last, key=h_seq, value=h_seq, key_padding_mask=mask)
+		context, attn_weights = self.attention(query=h_context, key=h_seq, value=h_seq, key_padding_mask=mask)
 		context = context.squeeze(dim=1)
-		h_last = h_last.squeeze(dim=1)
+		h_context = h_context.squeeze(dim=1)
+		# x = context.squeeze(dim=1)
 
-		x = torch.cat([context, h_last], dim=1)
+		x = torch.cat([context, h_context], dim=1)
 		x = self.fc_squeeze(x)  # (N, d_fc_out)
 		
 		for fc in self.fc_out:
@@ -162,7 +174,7 @@ if __name__ == '__main__':
 	
 	y = torch.tensor(y, dtype=torch.long)
 	
-	model = SingleLstmAttention(d_in=300, dropout=0, d_fc_lstm=-1, d_fc_attentiion=-1, d_context=-1, n_class=3, n_fc_out=0)
+	model = SingleCnnAttention(d_in=300, dropout=0, d_fc_attentiion=-1, d_context=-1, n_class=3, n_fc_out=0)
 	
 	model.train()
 	

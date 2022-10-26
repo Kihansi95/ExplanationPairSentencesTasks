@@ -3,18 +3,16 @@ from os import path
 import json
 from argparse import ArgumentParser
 from codecarbon import EmissionsTracker
-from codecarbon.output import LoggerOutput
 
+from model_module import SingleCNNAttentionModule
 from modules import report_score
-from modules.const import InputType, Mode
+from modules.const import InputType, Mode, ContextType
 from modules.logger import init_logging
 from modules.logger import log
 
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning import callbacks as cb
-
-from model_module import DualLSTMAttentionModule, SingleLSTMAttentionModule
 
 def get_num_workers() -> int:
 	"""
@@ -52,7 +50,7 @@ def parse_argument(prog: str = __name__, description: str = 'Train LSTM-based at
 	
 	# Trainer params
 	parser.add_argument('--cache', '-o', type=str, default=path.join(os.getcwd(), '..', '.cache'), help='Path to temporary directory to store output of training process')
-	parser.add_argument('--mode', '-m', type=str, default='dev', help='Choose among [dev, exp]. "exp" will disable the progressbar')
+	parser.add_argument('--mode', '-m', type=str, default=Mode.DEV, choices=Mode.list(), help='Choose among [dev, exp]. "exp" will disable the progressbar')
 	parser.add_argument('--num_workers', type=int, default=get_num_workers(), help='Indicate whether we are in IGRIDA cluster mode. Default: Use all cpu cores.')
 	parser.add_argument('--accelerator', type=str, default='auto', help='Indicate whether we are in IGRIDA cluster mode. Default: Use all cpu cores.')
 	parser.add_argument('--name', type=str, help='Experimentation name. If not given, use model name instead.')
@@ -68,8 +66,9 @@ def parse_argument(prog: str = __name__, description: str = 'Train LSTM-based at
 	parser.add_argument('--vectors', type=str, help='Pretrained vectors. See more in torchtext Vocab, example: glove.840B.300d')
 	parser.add_argument('--dropout', type=float)
 	parser.add_argument('--d_embedding', type=int, default=300, help='Embedding dimension, will be needed if vector is not precised')
-	parser.add_argument('--d_hidden_lstm', type=int, default=-1)
-	parser.add_argument('--n_lstm', type=int, default=1)
+
+	parser.add_argument('--context', type=str, choices=ContextType.list())
+	parser.add_argument('--n_context', type=int, default=1)
 	
 	# Data configuration
 	parser.add_argument('--n_data', '-n', type=int, default=-1, help='Maximum data number for train+val+test, -1 if full dataset. Default: -1')
@@ -164,17 +163,17 @@ if __name__ == '__main__':
 		lambda_lagrange=args.lambda_lagrange,
 		lambda_heuristic=args.lambda_heuristic,
 		pretrained_vectors=args.vectors,
-		n_lstm=args.n_lstm,
-		d_hidden_lstm=args.d_hidden_lstm,
+		n_context=args.n_context,
 		d_embedding=args.d_embedding,
 		data=args.data,
 		num_class=dm.num_class
 	)
 	
+
 	if dm.input_type == InputType.SINGLE:
-		ModelModule = SingleLSTMAttentionModule
-	elif dm.input_type == InputType.DUAL:
-		ModelModule = DualLSTMAttentionModule
+		ModelModule = SingleCNNAttentionModule
+	# elif dm.input_type == InputType.DUAL:
+	# 	ModelModule = DualLSTMAttentionModule
 	else:
 		msg = f'Unknown input type of dm {str(dm)}: {dm.input_type}'
 		log.error(msg)
@@ -210,15 +209,8 @@ if __name__ == '__main__':
 	# Set up output path
 	ckpt_path = path.join(logger.log_dir, 'checkpoints', 'best.ckpt')
 	hparams_path = path.join(logger.log_dir, 'hparams.yaml')
-	
-	if args.train:
-		model = ModelModule(**model_args)
-		trainer.fit(model, datamodule=dm, ckpt_path=ckpt_path if args.resume else None)
-	
-	else:
-		model = ModelModule.load_from_checkpoint(checkpoint_path=ckpt_path, hparams_file=hparams_path, **model_args)
-		
 	# Carbon tracking
+	
 	if args.mode == Mode.EXP:
 		tracker = EmissionsTracker(
 			project_name=f'{args.name}/{args.version}',
@@ -226,6 +218,14 @@ if __name__ == '__main__':
 			log_level='critical'
 		)
 		tracker.start()
+	
+	# Init model
+	if args.train:
+		model = ModelModule(**model_args)
+		trainer.fit(model, datamodule=dm, ckpt_path=ckpt_path if args.resume else None)
+	
+	else:
+		model = ModelModule.load_from_checkpoint(checkpoint_path=ckpt_path, hparams_file=hparams_path, **model_args)
 	
 	if args.train or args.test:
 		scores = trainer.test(model=model, datamodule=dm)
@@ -249,6 +249,7 @@ if __name__ == '__main__':
 		emission = tracker.stop()
 		emission_str = f'Total emission in experiment trial: {emission} kgs'
 		log.info(emission_str)
+		print(emission_str)
 			
 	if args.morpho_filter:
 		raise Exception('Not yet implemented')
