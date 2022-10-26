@@ -5,7 +5,6 @@ from argparse import ArgumentParser
 from typing import Union
 import json
 
-import torch
 from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning import callbacks as cb
 
@@ -17,13 +16,13 @@ import torchmetrics as m
 from data_module.hatexplain import HateXPlainDM
 from data_module.yelp_hat import *
 from data_module.esnli import ESNLIDM
+from modules.const import SpecToken, Mode
 
 from modules.logger import log, init_logging
 from modules import metrics, env, rescale, INF
 
 from model.pur_attention import PureAttention
 from modules.loss import IoU
-from src.data_module.constant import PAD_TOK
 
 
 class AttitModel(pl.LightningModule):
@@ -53,7 +52,7 @@ class AttitModel(pl.LightningModule):
                                    vocab_size=len(vocab),
                                    num_heads=num_heads,
                                    num_layers=num_layers,
-                                   padding_idx=vocab[PAD_TOK],
+                                   padding_idx=vocab[SpecToken.CLS],
                                    attention_raw=True,
                                    n_class=num_class,
                                    d_embedding=kwargs['d_embedding'],
@@ -85,11 +84,10 @@ class AttitModel(pl.LightningModule):
                 'a:AUROC': m.AUROC(average='micro'),
                 'a:AUPRC': m.AveragePrecision(average='micro'),
                 'a:Jaccard': metrics.PowerJaccard(),
-                'a:Jaccard2': metrics.PowerJaccard(power=2.),
-                # 'a:Dice': m.Dice(),
                 'a:IoU': m.JaccardIndex(num_classes=2),
                 'a:Recall': metrics.AURecall(),
                 'a:Precision': metrics.AUPrecision(),
+                'a:Specificity': m.Specificity(),
             })
             warnings.simplefilter("ignore")
 
@@ -111,7 +109,8 @@ class AttitModel(pl.LightningModule):
         return self.model(ids=ids, mask=mask)
 
     def configure_optimizers(self):
-        optimizer = optim.Adam(self.parameters(), lr=5e-10)
+        #optimizer = optim.Adam(self.parameters(), lr=5e-10)
+        optimizer = optim.Adam(self.parameters())
         return optimizer
 
     def training_step(self, batch, batch_idx, val=False):
@@ -288,7 +287,7 @@ class AttitModel(pl.LightningModule):
             print()
 
     def epoch_end(self, stage):
-        if self._mode == M_EXP:
+        if self._mode == Mode.EXP:
             metric = self.y_metrics[stage].compute()
             try:
                 metric.update(self.attention_metrics[stage].compute())
@@ -345,45 +344,46 @@ def parse_argument(prog: str = __name__, description: str = 'Experimentation on 
     parser.add_argument('--disable_log_color', action='store_true',
                         help='Activate for console does not support coloring')
 
-    # Training params
-    parser.add_argument('--cache', '-o', type=str, default=path.join(os.getcwd(), '..', '.cache'),
-                        help='Path to temporary directory to store output of training process')
-    parser.add_argument('--mode', '-m', type=str, default='dev',
-                        help='Choose among f[dev, exp]. "exp" will disable the progressbar')
-    parser.add_argument('--OAR_ID', type=int, help='Indicate whether we are in IGRIDA cluster mode')
-    parser.add_argument('--num_workers', type=int, default=get_num_workers(),
-                        help='Indicate whether we are in IGRIDA cluster mode. Default: Use all cpu cores.')
-    parser.add_argument('--accelerator', type=str, default='auto',
-                        help='Indicate whether we are in IGRIDA cluster mode. Default: Use all cpu cores.')
+    # Trainer params
+    parser.add_argument('--cache', '-o', type=str, default=path.join(os.getcwd(), '..', '.cache'), help='Path to temporary directory to store output of training process')
+    parser.add_argument('--mode', '-m', type=str, default='dev', help='Choose among [dev, exp]. "exp" will disable the progressbar')
+    parser.add_argument('--num_workers', type=int, default=get_num_workers(), help='Indicate whether we are in IGRIDA cluster mode. Default: Use all cpu cores.')
+    parser.add_argument('--accelerator', type=str, default='auto', help='Indicate whether we are in IGRIDA cluster mode. Default: Use all cpu cores.')
     parser.add_argument('--name', type=str, help='Experimentation name. If not given, use model name instead.')
-    parser.add_argument('--version', type=str, help='Experimentation version')
-
-    # For trainer setting
-    parser.add_argument('--resume', '-r', action='store_true',
-                        help='Flag to resume the previous training process, detected by model name.')
+    parser.add_argument('--version', type=str, default='default_version', help='Experimentation version')
     parser.add_argument('--epoch', '-e', type=int, default=1, help='Number training epoch. Default: 1')
     parser.add_argument('--batch_size', '-b', type=int, default=32, help='Number of data in batch. Default: 32')
     parser.add_argument('--strategy', '-s', type=str, help='')
+    parser.add_argument('--fast_dev_run', action='store_true')
+    parser.add_argument('--detect_anomaly', action='store_true')
+    parser.add_argument('--track_grad_norm', type=int, default=-1)
 
     # Model configuration
-    parser.add_argument('--vectors', type=str,
-                        help='Pretrained vectors. See more in torchtext Vocab, example: glove.840B.300d')
+    parser.add_argument('--vectors', type=str, help='Pretrained vectors. See more in torchtext Vocab, example: glove.840B.300d')
     parser.add_argument('--dropout', type=float)
-    parser.add_argument('--d_embedding', type=int, default=300,
-                        help='Embedding dimension, will be needed if vector is not precised')
+    parser.add_argument('--d_embedding', type=int, default=300, help='Embedding dimension, will be needed if vector is not precised')
     parser.add_argument('--num_layers', type=int, default=2, help='number of layers in the model')
     parser.add_argument('--num_heads', type=int, default=2, help='number of heads on each layer')
 
     # Data configuration
-    parser.add_argument('--n_data', '-n', type=int, default=-1,
-                        help='Maximum data number for train+val+test, -1 if full dataset. Default: -1')
+    parser.add_argument('--n_data', '-n', type=int, default=-1, help='Maximum data number for train+val+test, -1 if full dataset. Default: -1')
     parser.add_argument('--data', '-d', type=str, default="esnli", help='Choose dataset to train model')
 
+    # Fit configuration
+    parser.add_argument('--resume', action='store_true', help='Resume training from the last checkpoint if there is')
+
+    # Predict configuration
+    parser.add_argument('--test_path', type=str, help='Path to which model give output score')
+    
+    # Pipeline
+    parser.add_argument('--train', action='store_true')
+    parser.add_argument('--test', action='store_true')
+    parser.add_argument('--predict', action='store_true')
+    
     # Regularizer
     parser.add_argument('--lambda_entropy', type=float, default=0., help='multiplier for entropy')
     parser.add_argument('--lambda_supervise', type=float, default=0., help='multiplier for supervise')
-    parser.add_argument('--lambda_lagrange', type=float, default=0.,
-                        help='multiplier for relaxation of Lagrange (Supervision by entropy)')
+    parser.add_argument('--lambda_lagrange', type=float, default=0., help='multiplier for relaxation of Lagrange (Supervision by entropy)')
 
     params = parser.parse_args()
     print('=== Parameters ===')
@@ -391,25 +391,22 @@ def parse_argument(prog: str = __name__, description: str = 'Experimentation on 
 
     # If data not provided, automatically get from '<cache>/dataset'
     params.mode = params.mode.lower()
-    # params = {k: v for k, v in params.items() if v is not None}
-    env.disable_tqdm = params.OAR_ID is not None
     return params
 
 
 # const for mode
-M_EXP = 'exp'
-M_DEV = 'dev'
-
 if __name__ == '__main__':
-
+    
     args = parse_argument()
+    if not (args.train or args.test or args.predict):
+        args.train = True
 
     DATA_CACHE = path.join(args.cache, 'dataset')
     MODEL_CACHE = path.join(args.cache, 'models')
     LOGS_CACHE = path.join(args.cache, 'logs')
 
     # init logging
-    if args.mode == M_EXP:
+    if args.mode == Mode.EXP:
         init_logging(cache_path=LOGS_CACHE, color=False, experiment=args.name, version=args.version)
     else:
         init_logging(color=True)
@@ -438,23 +435,24 @@ if __name__ == '__main__':
 
     # prepare data here before going to multiprocessing
     dm.prepare_data()
-    model = AttitModel(cache_path=MODEL_CACHE,
-                       mode=args.mode,
-                       vocab=dm.vocab,
-                       lambda_entropy=args.lambda_entropy,
-                       lambda_supervise=args.lambda_supervise,
-                       lambda_lagrange=args.lambda_lagrange,
-                       pretrained_vectors=args.vectors,
-                       num_layers=args.num_layers,
-                       num_heads=args.num_heads,
-                       d_embedding=args.d_embedding,
-                       data=args.data,
-                       num_class=dm.num_class
-                       )
+    model_args = dict(
+        cache_path=MODEL_CACHE,
+        mode=args.mode,
+        vocab=dm.vocab,
+        lambda_entropy=args.lambda_entropy,
+        lambda_supervise=args.lambda_supervise,
+        lambda_lagrange=args.lambda_lagrange,
+        pretrained_vectors=args.vectors,
+        num_layers=args.num_layers,
+        num_heads=args.num_heads,
+        d_embedding=args.d_embedding,
+        data=args.data,
+        num_class=dm.num_class
+    )
 
     # call back
-    early_stopping = cb.EarlyStopping('VAL/loss', patience=5, verbose=args.mode != M_EXP,
-                                      mode='min')  # stop if no improvement withing 10 epochs
+    early_stopping = cb.EarlyStopping('VAL/loss', patience=5, verbose=args.mode != Mode.EXP, mode='min')  # stop if no improvement withing 10 epochs
+    
     model_checkpoint = cb.ModelCheckpoint(
         filename='best',
         monitor='VAL/loss', mode='min',  # save the minimum val_loss
@@ -471,33 +469,48 @@ if __name__ == '__main__':
     trainer = pl.Trainer(
         max_epochs=args.epoch,
         accelerator=args.accelerator,  # auto use gpu
-        enable_progress_bar=args.mode != M_EXP,  # not show progress bar when experimentation
+        enable_progress_bar=args.mode != Mode.EXP,  # not show progress bar when experimentation
         log_every_n_steps=1,
         default_root_dir=LOGS_CACHE,
         logger=logger,
         strategy=args.strategy,
-        # fast_dev_run=True,
+        fast_dev_run=args.fast_dev_run,
         callbacks=[early_stopping, model_checkpoint],
-        # auto_scale_batch_size=True,
-        # track_grad_norm=2,
-        # detect_anomaly=True # TODO deactivate on large scale experiemnt
+        track_grad_norm=args.track_grad_norm,  # track_grad_norm=2 for debugging
+        detect_anomaly=args.detect_anomaly,  # deactivate on large scale experiemnt
+        benchmark=False,  # benchmark = False better time in NLP
     )
 
-    trainer.fit(model, datamodule=dm)
+    # Set up output path
+    ckpt_path = path.join(logger.log_dir, 'checkpoints', 'best.ckpt')
+    hparams_path = path.join(logger.log_dir, 'hparams.yaml')
+    
+    if args.train:
+        model = AttitModel(**model_args)
+        trainer.fit(model, datamodule=dm, ckpt_path=ckpt_path if args.resume else None)
 
-    scores = trainer.test(
-        ckpt_path='best',
-        datamodule=dm
-    )
+    else:
+        model = AttitModel.load_from_checkpoint(checkpoint_path=ckpt_path, hparams_file=hparams_path, **model_args)
 
-    for idx, score in enumerate(scores):
-        log.info(score)
-        logger.log_metrics(score)
+    if args.train or args.test:
+    
+        scores = trainer.test(
+            model=model,
+            datamodule=dm,
+        )
+    
+        # remove 'TEST/' from score dicts:
+        scores = [{k.replace('TEST/', ''): v for k, v in s.items()} for s in scores]
+    
+        for idx, score in enumerate(scores):
+            log.info(score)
+            logger.log_metrics(score)
+        
+            score_dir = args.test_path or logger.log_dir
+            os.makedirs(score_dir, exist_ok=True)
+            score_path = path.join(score_dir, f'score{"" if idx == 0 else "_" + str(idx)}.json')
+        
+            with open(score_path, 'w') as fp:
+                json.dump(score, fp, indent='\t')
+                log.info(f'Score is saved at {score_path}')
 
-        score_path = path.join(logger.log_dir, f'score{"" if idx == 0 else "_" + str(idx)}.json')
-
-        with open(score_path, 'w') as fp:
-            json.dump(score, fp, indent='\t')
-            log.info(f'Score is saved at {score_path}')
-
-    print('Done')

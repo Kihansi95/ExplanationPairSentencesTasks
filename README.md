@@ -53,7 +53,7 @@ python -m pip install -r requirements.cpu.txt
 
 2. Run an experimentation.
 ```bash
-python src/single_lstm_attention.py \
+python src/single_lstm_attention_module.py \
           --cache .cache \
           --epoch 30 \
           --batch_size 128 \
@@ -70,6 +70,7 @@ Each technique has a corresponding lambda arguments:
   * **supervision**: `--lambda_supervise 0.5`
   * **regularization**: `--lambda_entropy 0.5`
   * **semisupervision**: `--lambda_heuristic 0.5` 
+  * **regularization with guided entropy**: `--lambda_lagrange 0.5` 
 
 3. Summarize results for figures. It will automatically create a new folder `summary` in `--out_dir` path.
 

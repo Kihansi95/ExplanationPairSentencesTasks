@@ -1,4 +1,9 @@
+import json
+import os
+
 import torch
+
+from modules.logger import log
 
 INF = 1e30 # Infinity
 
@@ -11,29 +16,60 @@ def rescale(attention: torch.Tensor, mask: torch.Tensor):
 	return rescale_attention
 
 def hightlight_txt(txt, weights):
-    """
-    Build an HTML of text along its weights.
-    Args:
-        txt:
-        weights:
+	"""
+	Build an HTML of text along its weights.
+	Args:
+		txt:
+		weights:
 
-    Returns: str
-    Examples:
-        ```python
-        from IPython.core.display import display, HTML
-        highlighted_text = hightlight_txt(lemma1[0], a1v2)
-        display(HTML(highlighted_text))
-        ```
-    """
-    max_alpha = 0.8
+	Returns: str
+	Examples:
+		```python
+		from IPython.core.display import display, HTML
+		highlighted_text = hightlight_txt(lemma1[0], a1v2)
+		display(HTML(highlighted_text))
+		```
+	"""
+	max_alpha = 0.8
 
-    highlighted_text = ''
-    w_min, w_max = torch.min(weights), torch.max(weights)
-    w_norm = (weights - w_min)/(w_max - w_min)
+	highlighted_text = ''
+	w_min, w_max = torch.min(weights), torch.max(weights)
+	w_norm = (weights - w_min)/(w_max - w_min)
 
-    for i in range(len(txt)):
-        highlighted_text += '<span style="background-color:rgba(135,206,250,' \
-                            + str(float(w_norm[i]) / max_alpha) + ');">' \
-                            + txt[i] + '</span> '
+	for i in range(len(txt)):
+		highlighted_text += '<span style="background-color:rgba(135,206,250,' \
+							+ str(float(w_norm[i]) / max_alpha) + ');">' \
+							+ txt[i] + '</span> '
 
-    return highlighted_text
+	return highlighted_text
+
+
+def report_score(scores: dict, logger, score_dir) -> None:
+	"""
+	Report scores into score.json and logger
+	:param scores: dictionary that has reported scores
+	:type scores: dict
+	:param logger: Tensorboard logger. Report into hyperparameters
+	:type logger: TensorBoardLogger
+	:param score_dir: directory to find score.json
+	:type score_dir: str
+	:return: None
+	:rtype: None
+	"""
+	
+	# remove 'TEST/' from score dicts:
+	scores = [{k.replace('TEST/', ''): v for k, v in s.items()} for s in scores]
+	
+	for idx, score in enumerate(scores):
+		log.info(score)
+		logger.log_metrics(score)
+		
+		#score_dir = args.test_path or logger.log_dir
+		os.makedirs(score_dir, exist_ok=True)
+		score_path = os.path.join(score_dir, f'score{"" if idx == 0 else "_" + str(idx)}.json')
+		
+		with open(score_path, 'w') as fp:
+			json.dump(score, fp, indent='\t')
+			log.info(f'Score is saved at {score_path}')
+			
+		
