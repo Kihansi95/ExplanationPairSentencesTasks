@@ -80,13 +80,13 @@ class PureAttention(nn.Module):
         attention_raw = kwargs.get('attention_raw', False)
         # TODO : check where is the problem in the gradient.
         self.attention_layers = nn.ModuleList([
-            MultiheadAttention(embed_dim=d_embedding,
-                               num_heads=num_heads,
-                               dropout=dropout,
-                               kdim=d_embedding,
-                               vdim=d_embedding,
-                               batch_first=True,
-                               )
+            Attention(embed_dim=d_embedding,
+                      num_heads=num_heads,
+                      dropout=dropout,
+                      kdim=d_embedding,
+                      vdim=d_embedding,
+                      batch_first=True,
+                      )
             for _ in range(num_layers)
         ])
 
@@ -115,24 +115,25 @@ class PureAttention(nn.Module):
         x = self.embedding(x)  # shape of (N, L, h)
 
         # the positional encoding
-        #x = self.pe(x)
+        # x = self.pe(x)
 
         attention_weights = []  # each element of the list is of size (N, H, L, L)
 
         for i, l in enumerate(self.attention_layers):
             # Compute attention : contextualization of the embeddings
             # compute the attention on the embeddings
+            # /!\ the attention weights are already averaged on the number of heads.
             x, attn_weights = l(query=x,
                                 key=x,
                                 value=x,
-                                key_padding_mask=mask,
-                                average_attn_weights=False)
+                                key_padding_mask=mask
+                                )
 
-            attention_weights.append(attn_weights) # we add the different attention weights while we progress.
+            attention_weights.append(attn_weights)  # we add the different attention weights while we progress.
 
         # cls token of the last hidden state
         cls_tokens = x[:, 0, :]
-        #log.debug(f"cls_tok : {cls_tokens}")
+        # log.debug(f"cls_tok : {cls_tokens}")
 
         logits = self.classifier(cls_tokens)
 

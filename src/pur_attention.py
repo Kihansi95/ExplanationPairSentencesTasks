@@ -114,7 +114,6 @@ class AttitModel(pl.LightningModule):
         return optimizer
 
     def training_step(self, batch, batch_idx, val=False):
-
         y_true = batch['y_true']
         padding_mask = batch['padding_mask'].bool()
         a_true = batch['a_true']
@@ -126,13 +125,13 @@ class AttitModel(pl.LightningModule):
         loss_classif = self.loss_fn(y_hat, y_true)
 
         # construction of the attention map with a_hat
-        attention_tensor = torch.stack(output_model['attn_weights'], dim=1)
+        attention_tensor = torch.stack(output_model['attn_weights'], dim=1)  # [N, num_layers, L, L]
         agreg_mask = ((~padding_mask).float()).clone().detach().to(self.device) \
-            .unsqueeze(1).unsqueeze(1).unsqueeze(1) \
-            .repeat(1, self.num_layers, self.num_heads, batch['token_ids'].shape[1], 1)
-        pad_mask = torch.transpose(agreg_mask, dim0=3, dim1=4)
+            .unsqueeze(1).unsqueeze(1) \
+            .repeat(1, self.num_layers, batch['token_ids'].shape[1], 1)
+        pad_mask = torch.transpose(agreg_mask, dim0=2, dim1=3)
         attention_tensor = torch.mul(attention_tensor, pad_mask)
-        a_hat = attention_tensor.sum(dim=1).sum(dim=1).sum(dim=1) / self.num_heads
+        a_hat = attention_tensor.sum(dim=1).sum(dim=1)
 
         # ENTROPY
         entropy_mask = padding_mask.float().clone().detach().to(self.device)
@@ -173,20 +172,20 @@ class AttitModel(pl.LightningModule):
     # begin the build the logs
     def test_step(self, batch, batch_idx, dataloader_idx=None):
         # this function only calculate the vectors we need.
-        padding_mask = batch['padding_mask'].bool()
+        padding_mask = batch['padding_mask'].bool()  # [N, L]
         output_model = self(ids=batch['token_ids'], mask=padding_mask)
 
         # training part
         y_hat = output_model["logits"]
-        output_model = self(ids=batch['token_ids'], mask=batch['padding_mask'])
+        output_model = self(ids=batch['token_ids'], mask=padding_mask)
 
-        attention_tensor = torch.stack(output_model['attn_weights'], dim=1)
+        attention_tensor = torch.stack(output_model['attn_weights'], dim=1)  # [N, num_layers, L, L]
         agreg_mask = ((~padding_mask).float()).clone().detach().to(self.device) \
-            .unsqueeze(1).unsqueeze(1).unsqueeze(1) \
-            .repeat(1, self.num_layers, self.num_heads, batch['token_ids'].shape[1], 1)
-        pad_mask = torch.transpose(agreg_mask, dim0=3, dim1=4)
+            .unsqueeze(1).unsqueeze(1) \
+            .repeat(1, self.num_layers, batch['token_ids'].shape[1], 1)
+        pad_mask = torch.transpose(agreg_mask, dim0=2, dim1=3)
         attention_tensor = torch.mul(attention_tensor, pad_mask)
-        a_hat = attention_tensor.sum(dim=1).sum(dim=1).sum(dim=1) / self.num_heads
+        a_hat = attention_tensor.sum(dim=1).sum(dim=1)
 
         return {'y_hat': y_hat,
                 'y_true': batch['y_true'],
@@ -344,11 +343,16 @@ def parse_argument(prog: str = __name__, description: str = 'Experimentation on 
     parser.add_argument('--disable_log_color', action='store_true',
                         help='Activate for console does not support coloring')
 
-    # Trainer params
-    parser.add_argument('--cache', '-o', type=str, default=path.join(os.getcwd(), '..', '.cache'), help='Path to temporary directory to store output of training process')
-    parser.add_argument('--mode', '-m', type=str, default='dev', help='Choose among [dev, exp]. "exp" will disable the progressbar')
-    parser.add_argument('--num_workers', type=int, default=get_num_workers(), help='Indicate whether we are in IGRIDA cluster mode. Default: Use all cpu cores.')
-    parser.add_argument('--accelerator', type=str, default='auto', help='Indicate whether we are in IGRIDA cluster mode. Default: Use all cpu cores.')
+    # Training params
+    parser.add_argument('--cache', '-o', type=str, default=path.join(os.getcwd(), '..', '.cache'),
+                        help='Path to temporary directory to store output of training process')
+    parser.add_argument('--mode', '-m', type=str, default='dev',
+                        help='Choose among f[dev, exp]. "exp" will disable the progressbar')
+    parser.add_argument('--OAR_ID', type=int, help='Indicate whether we are in IGRIDA cluster mode')
+    parser.add_argument('--num_workers', type=int, default=get_num_workers(),
+                        help='Indicate whether we are in IGRIDA cluster mode. Default: Use all cpu cores.')
+    parser.add_argument('--accelerator', type=str, default='auto',
+                        help='Indicate whether we are in IGRIDA cluster mode. Default: Use all cpu cores.')
     parser.add_argument('--name', type=str, help='Experimentation name. If not given, use model name instead.')
     parser.add_argument('--version', type=str, default='default_version', help='Experimentation version')
     parser.add_argument('--epoch', '-e', type=int, default=1, help='Number training epoch. Default: 1')
@@ -383,7 +387,8 @@ def parse_argument(prog: str = __name__, description: str = 'Experimentation on 
     # Regularizer
     parser.add_argument('--lambda_entropy', type=float, default=0., help='multiplier for entropy')
     parser.add_argument('--lambda_supervise', type=float, default=0., help='multiplier for supervise')
-    parser.add_argument('--lambda_lagrange', type=float, default=0., help='multiplier for relaxation of Lagrange (Supervision by entropy)')
+    parser.add_argument('--lambda_lagrange', type=float, default=0.,
+                        help='multiplier for relaxation of Lagrange (Supervision by entropy)')
 
     params = parser.parse_args()
     print('=== Parameters ===')
