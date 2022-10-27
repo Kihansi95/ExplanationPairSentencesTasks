@@ -470,7 +470,6 @@ if __name__ == '__main__':
         filename='best',
         monitor='VAL/loss', mode='min',  # save the minimum val_loss
     )
-
     # logger
     logger = TensorBoardLogger(
         save_dir=LOGS_CACHE,
