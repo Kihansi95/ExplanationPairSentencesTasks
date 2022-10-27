@@ -40,7 +40,7 @@ class DualLSTMAttentionModule(pl.LightningModule):
 		self.data = data
 		
 		if pretrained_vectors is not None and isinstance(pretrained_vectors, str):
-			vector_path = path.join(cache_path, '../..', '.vector_cache')
+			vector_path = path.join(cache_path, '..', '.vector_cache')
 			os.makedirs(vector_path, exist_ok=True)
 			vectors = pretrained[pretrained_vectors](cache=vector_path)
 			pretrained_vectors = [vectors[token] for token in vocab.get_itos()]
@@ -123,7 +123,8 @@ class DualLSTMAttentionModule(pl.LightningModule):
 			premise_ids=batch['premise_ids'],
 			hypothesis_ids=batch['hypothesis_ids'],
 			premise_padding=padding_mask['premise'],
-			hypothesis_padding=padding_mask['hypothesis'])
+			hypothesis_padding=padding_mask['hypothesis']
+		)
 		
 		loss_classif = self.loss_fn(y_hat, y_true)
 		
@@ -163,9 +164,11 @@ class DualLSTMAttentionModule(pl.LightningModule):
 			premise_padding=padding_mask['premise'],
 			hypothesis_padding=padding_mask['hypothesis'])
 		
+		a_hat = {s: a.detach() for s, a in a_hat.items()}
+		
 		return {'y_hat': y_hat,
 		        'y_true': y_true,
-		        'a_hat': a_hat.detach(),
+		        'a_hat': a_hat,
 		        'a_true': batch['a_true'],
 		        'padding_mask': padding_mask}
 	

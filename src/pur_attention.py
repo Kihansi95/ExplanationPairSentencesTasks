@@ -35,12 +35,12 @@ class AttitModel(pl.LightningModule):
                  num_class=-1,
                  num_layers=1,
                  num_heads=1,
-                 opt="adam",
+                 optimizer="adam",
                  **kwargs):
         super(AttitModel, self).__init__()
 
         # log hyperparameters into hparams.yaml
-        self.save_hyperparameters('data', 'num_layers', 'lambda_entropy', 'lambda_supervise', 'lambda_lagrange')
+        self.save_hyperparameters('data', 'num_layers', 'num_heads', 'lambda_entropy', 'lambda_supervise', 'lambda_lagrange')
         self.data = data
 
         if pretrained_vectors is not None and isinstance(pretrained_vectors, str):
@@ -64,7 +64,7 @@ class AttitModel(pl.LightningModule):
         self.num_layers = num_layers
 
         self.loss_fn = nn.CrossEntropyLoss()
-        self.opt = opt
+        self.optimizer = optimizer
         self.supervise_loss_fn = IoU()
         self.lagrange_loss_fn = nn.MSELoss()
 
@@ -111,7 +111,7 @@ class AttitModel(pl.LightningModule):
         return self.model(ids=ids, mask=mask)
 
     def configure_optimizers(self):
-        if self.opt == "adam":
+        if self.optimizer == "adam":
             # adam optimizer
             optimizer = optim.Adam(self.parameters())
         else:

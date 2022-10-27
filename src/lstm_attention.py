@@ -3,7 +3,6 @@ from os import path
 import json
 from argparse import ArgumentParser
 from codecarbon import EmissionsTracker
-from codecarbon.output import LoggerOutput
 
 from modules import report_score
 from modules.const import InputType, Mode
