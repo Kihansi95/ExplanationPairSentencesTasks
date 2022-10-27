@@ -35,6 +35,7 @@ class AttitModel(pl.LightningModule):
                  num_class=-1,
                  num_layers=1,
                  num_heads=1,
+                 opt="adam",
                  **kwargs):
         super(AttitModel, self).__init__()
 
@@ -63,6 +64,7 @@ class AttitModel(pl.LightningModule):
         self.num_layers = num_layers
 
         self.loss_fn = nn.CrossEntropyLoss()
+        self.opt = opt
         self.supervise_loss_fn = IoU()
         self.lagrange_loss_fn = nn.MSELoss()
 
@@ -109,9 +111,12 @@ class AttitModel(pl.LightningModule):
         return self.model(ids=ids, mask=mask)
 
     def configure_optimizers(self):
-        #optimizer = optim.Adam(self.parameters(), lr=5e-10)
-        # optimizer = optim.Adam(self.parameters())
-        optimizer = optim.Adadelta(self.parameters())
+        if self.opt == "adam":
+            # adam optimizer
+            optimizer = optim.Adam(self.parameters())
+        else:
+            # adadelta : adaptative learning
+            optimizer = optim.Adadelta(self.parameters())
         return optimizer
 
     def training_step(self, batch, batch_idx, val=False):
@@ -388,7 +393,8 @@ def parse_argument(prog: str = __name__, description: str = 'Experimentation on 
     # Regularizer
     parser.add_argument('--lambda_entropy', type=float, default=0., help='multiplier for entropy')
     parser.add_argument('--lambda_supervise', type=float, default=0., help='multiplier for supervise')
-    parser.add_argument('--lambda_lagrange', type=float, default=0., help='multiplier for relaxation of Lagrange (Supervision by entropy)')
+    parser.add_argument('--lambda_lagrange', type=float, default=0.,
+                        help='multiplier for relaxation of Lagrange (Supervision by entropy)')
 
     params = parser.parse_args()
     print('=== Parameters ===')
