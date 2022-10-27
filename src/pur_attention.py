@@ -161,7 +161,7 @@ class AttitModel(pl.LightningModule):
         loss = loss_classif + self.lambda_entropy * loss_entropy + \
                self.lambda_supervise * loss_supervise + \
                self.lambda_lagrange * loss_lagrange
-
+        #a_hat_buff = a_hat.clone().detach()
         return {
             'loss': loss,
             'loss_entropy': loss_entropy,
