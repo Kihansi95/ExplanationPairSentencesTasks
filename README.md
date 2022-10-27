@@ -48,7 +48,7 @@ and `requirements.gpu.txt` (dependencies for GPU).
 ```bash
 python -m venv eps
 source eps/bin/activate
-python -m pip install -r requirements.cpu.txt
+pip install -r requirements.cpu.txt
 ```
 
 2. Run an experimentation.

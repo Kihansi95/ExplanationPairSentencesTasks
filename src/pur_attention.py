@@ -110,7 +110,8 @@ class AttitModel(pl.LightningModule):
 
     def configure_optimizers(self):
         #optimizer = optim.Adam(self.parameters(), lr=5e-10)
-        optimizer = optim.Adam(self.parameters())
+        # optimizer = optim.Adam(self.parameters())
+        optimizer = optim.Adadelta(self.parameters())
         return optimizer
 
     def training_step(self, batch, batch_idx, val=False):
@@ -387,8 +388,7 @@ def parse_argument(prog: str = __name__, description: str = 'Experimentation on 
     # Regularizer
     parser.add_argument('--lambda_entropy', type=float, default=0., help='multiplier for entropy')
     parser.add_argument('--lambda_supervise', type=float, default=0., help='multiplier for supervise')
-    parser.add_argument('--lambda_lagrange', type=float, default=0.,
-                        help='multiplier for relaxation of Lagrange (Supervision by entropy)')
+    parser.add_argument('--lambda_lagrange', type=float, default=0., help='multiplier for relaxation of Lagrange (Supervision by entropy)')
 
     params = parser.parse_args()
     print('=== Parameters ===')
