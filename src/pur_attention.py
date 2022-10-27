@@ -112,7 +112,7 @@ class AttitModel(pl.LightningModule):
 
     def configure_optimizers(self):
         if self.opt == "adam":
-            #adam optimizer
+            # adam optimizer
             optimizer = optim.Adam(self.parameters())
         else:
             # adadelta : adaptative learning
@@ -162,11 +162,17 @@ class AttitModel(pl.LightningModule):
                self.lambda_supervise * loss_supervise + \
                self.lambda_lagrange * loss_lagrange
 
-        return {'loss': loss,
-                'loss_entropy': loss_entropy,
-                'loss_supervise': loss_supervise,
-                'loss_lagrange': loss_lagrange,
-                'y_hat': y_hat, 'y_true': y_true, 'a_hat': a_hat, 'a_true': a_true, 'padding_mask': padding_mask}
+        return {
+            'loss': loss,
+            'loss_entropy': loss_entropy,
+            'loss_supervise': loss_supervise,
+            'loss_lagrange': loss_lagrange,
+            'y_hat': y_hat,
+            'y_true': y_true,
+            'a_hat': a_hat.clone().detach(),
+            'a_true': a_true.clone().detach(),
+            'padding_mask': padding_mask.clone().detach()
+        }
 
     def validation_step(self, batch, batch_idx):
         return self.training_step(batch, batch_idx, True)
@@ -369,15 +375,18 @@ def parse_argument(prog: str = __name__, description: str = 'Experimentation on 
     parser.add_argument('--track_grad_norm', type=int, default=-1)
 
     # Model configuration
-    parser.add_argument('--vectors', type=str, help='Pretrained vectors. See more in torchtext Vocab, example: glove.840B.300d')
+    parser.add_argument('--vectors', type=str,
+                        help='Pretrained vectors. See more in torchtext Vocab, example: glove.840B.300d')
     parser.add_argument('--dropout', type=float)
     parser.add_argument('--opt', type=str, default='adam', help="the optimizer algorithm we use")
-    parser.add_argument('--d_embedding', type=int, default=300, help='Embedding dimension, will be needed if vector is not precised')
+    parser.add_argument('--d_embedding', type=int, default=300,
+                        help='Embedding dimension, will be needed if vector is not precised')
     parser.add_argument('--num_layers', type=int, default=1, help='number of layers in the model')
     parser.add_argument('--num_heads', type=int, default=1, help='number of heads on each layer')
 
     # Data configuration
-    parser.add_argument('--n_data', '-n', type=int, default=-1, help='Maximum data number for train+val+test, -1 if full dataset. Default: -1')
+    parser.add_argument('--n_data', '-n', type=int, default=-1,
+                        help='Maximum data number for train+val+test, -1 if full dataset. Default: -1')
     parser.add_argument('--data', '-d', type=str, default="esnli", help='Choose dataset to train model')
 
     # Fit configuration
@@ -385,12 +394,12 @@ def parse_argument(prog: str = __name__, description: str = 'Experimentation on 
 
     # Predict configuration
     parser.add_argument('--test_path', type=str, help='Path to which model give output score')
-    
+
     # Pipeline
     parser.add_argument('--train', action='store_true')
     parser.add_argument('--test', action='store_true')
     parser.add_argument('--predict', action='store_true')
-    
+
     # Regularizer
     parser.add_argument('--lambda_entropy', type=float, default=0., help='multiplier for entropy')
     parser.add_argument('--lambda_supervise', type=float, default=0., help='multiplier for supervise')
@@ -408,7 +417,7 @@ def parse_argument(prog: str = __name__, description: str = 'Experimentation on 
 
 # const for mode
 if __name__ == '__main__':
-    
+
     args = parse_argument()
     if not (args.train or args.test or args.predict):
         args.train = True
@@ -464,8 +473,9 @@ if __name__ == '__main__':
     )
 
     # call back
-    early_stopping = cb.EarlyStopping('VAL/loss', patience=5, verbose=args.mode != Mode.EXP, mode='min')  # stop if no improvement withing 10 epochs
-    
+    early_stopping = cb.EarlyStopping('VAL/loss', patience=5, verbose=args.mode != Mode.EXP,
+                                      mode='min')  # stop if no improvement withing 10 epochs
+
     model_checkpoint = cb.ModelCheckpoint(
         filename='best',
         monitor='VAL/loss', mode='min',  # save the minimum val_loss
@@ -496,7 +506,7 @@ if __name__ == '__main__':
     # Set up output path
     ckpt_path = path.join(logger.log_dir, 'checkpoints', 'best.ckpt')
     hparams_path = path.join(logger.log_dir, 'hparams.yaml')
-    
+
     if args.train:
         model = AttitModel(**model_args)
         trainer.fit(model, datamodule=dm, ckpt_path=ckpt_path if args.resume else None)
@@ -505,24 +515,23 @@ if __name__ == '__main__':
         model = AttitModel.load_from_checkpoint(checkpoint_path=ckpt_path, hparams_file=hparams_path, **model_args)
 
     if args.train or args.test:
-    
+
         scores = trainer.test(
             model=model,
             datamodule=dm,
         )
-    
+
         # remove 'TEST/' from score dicts:
         scores = [{k.replace('TEST/', ''): v for k, v in s.items()} for s in scores]
-    
+
         for idx, score in enumerate(scores):
             log.info(score)
             logger.log_metrics(score)
-        
+
             score_dir = args.test_path or logger.log_dir
             os.makedirs(score_dir, exist_ok=True)
             score_path = path.join(score_dir, f'score{"" if idx == 0 else "_" + str(idx)}.json')
-        
+
             with open(score_path, 'w') as fp:
                 json.dump(score, fp, indent='\t')
                 log.info(f'Score is saved at {score_path}')
-
