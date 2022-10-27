@@ -40,7 +40,7 @@ class AttitModel(pl.LightningModule):
         super(AttitModel, self).__init__()
 
         # log hyperparameters into hparams.yaml
-        self.save_hyperparameters('data', 'num_layers', 'lambda_entropy', 'lambda_supervise', 'lambda_lagrange')
+        self.save_hyperparameters('data', 'num_layers', 'num_heads', 'lambda_entropy', 'lambda_supervise', 'lambda_lagrange')
         self.data = data
 
         if pretrained_vectors is not None and isinstance(pretrained_vectors, str):
@@ -53,7 +53,7 @@ class AttitModel(pl.LightningModule):
                                    vocab_size=len(vocab),
                                    num_heads=num_heads,
                                    num_layers=num_layers,
-                                   padding_idx=vocab[SpecToken.CLS],
+                                   padding_idx=vocab[SpecToken.PAD],
                                    attention_raw=True,
                                    n_class=num_class,
                                    d_embedding=kwargs['d_embedding'],
@@ -169,9 +169,9 @@ class AttitModel(pl.LightningModule):
             'loss_lagrange': loss_lagrange,
             'y_hat': y_hat,
             'y_true': y_true,
-            'a_hat': a_hat.clone().detach(),
-            'a_true': a_true.clone().detach(),
-            'padding_mask': padding_mask.clone().detach()
+            'a_hat': a_hat,
+            'a_true': a_true,
+            'padding_mask': padding_mask
         }
 
     def validation_step(self, batch, batch_idx):
