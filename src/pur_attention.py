@@ -21,7 +21,7 @@ from modules.const import SpecToken, Mode
 from modules.logger import log, init_logging
 from modules import metrics, env, rescale, INF
 
-from model.pur_attention import PureAttention
+from model.attention.pur_attention import PureAttention
 from modules.loss import IoU
 
 
