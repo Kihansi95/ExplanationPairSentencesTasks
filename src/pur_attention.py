@@ -21,7 +21,7 @@ from modules.const import SpecToken, Mode
 from modules.logger import log, init_logging
 from modules import metrics, env, rescale, INF
 
-from model.pur_attention import PureAttention
+from model.attention.pur_attention import PureAttention
 from modules.loss import IoU
 
 
@@ -35,7 +35,7 @@ class AttitModel(pl.LightningModule):
                  num_class=-1,
                  num_layers=1,
                  num_heads=1,
-                 optimizer="adam",
+                 opt="adam",
                  **kwargs):
         super(AttitModel, self).__init__()
 
@@ -53,7 +53,7 @@ class AttitModel(pl.LightningModule):
                                    vocab_size=len(vocab),
                                    num_heads=num_heads,
                                    num_layers=num_layers,
-                                   padding_idx=vocab[SpecToken.CLS],
+                                   padding_idx=vocab[SpecToken.PAD],
                                    attention_raw=True,
                                    n_class=num_class,
                                    d_embedding=kwargs['d_embedding'],
@@ -64,7 +64,7 @@ class AttitModel(pl.LightningModule):
         self.num_layers = num_layers
 
         self.loss_fn = nn.CrossEntropyLoss()
-        self.optimizer = optimizer
+        self.opt = opt
         self.supervise_loss_fn = IoU()
         self.lagrange_loss_fn = nn.MSELoss()
 
@@ -111,7 +111,7 @@ class AttitModel(pl.LightningModule):
         return self.model(ids=ids, mask=mask)
 
     def configure_optimizers(self):
-        if self.optimizer == "adam":
+        if self.opt == "adam":
             # adam optimizer
             optimizer = optim.Adam(self.parameters())
         else:
@@ -161,12 +161,18 @@ class AttitModel(pl.LightningModule):
         loss = loss_classif + self.lambda_entropy * loss_entropy + \
                self.lambda_supervise * loss_supervise + \
                self.lambda_lagrange * loss_lagrange
-
-        return {'loss': loss,
-                'loss_entropy': loss_entropy,
-                'loss_supervise': loss_supervise,
-                'loss_lagrange': loss_lagrange,
-                'y_hat': y_hat, 'y_true': y_true, 'a_hat': a_hat, 'a_true': a_true, 'padding_mask': padding_mask}
+        #a_hat_buff = a_hat.clone().detach()
+        return {
+            'loss': loss,
+            'loss_entropy': loss_entropy,
+            'loss_supervise': loss_supervise,
+            'loss_lagrange': loss_lagrange,
+            'y_hat': y_hat,
+            'y_true': y_true,
+            'a_hat': a_hat,
+            'a_true': a_true,
+            'padding_mask': padding_mask
+        }
 
     def validation_step(self, batch, batch_idx):
         return self.training_step(batch, batch_idx, True)
