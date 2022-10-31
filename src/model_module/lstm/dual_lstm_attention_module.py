@@ -108,7 +108,7 @@ class DualLSTMAttentionModule(pl.LightningModule):
 		)
 
 	def configure_optimizers(self):
-		optimizer = optim.Adam(self.parameters())
+		optimizer = optim.Adadelta(self.parameters())
 		# lr_scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1)
 		# return [optimizer], [lr_scheduler]
 		return optimizer

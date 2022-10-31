@@ -228,7 +228,7 @@ if __name__ == '__main__':
 	
 	if args.train or args.test:
 		scores = trainer.test(model=model, datamodule=dm)
-		report_score(scores, logger, args.test_path or logger.log_dir)
+		report_score(scores, logger, args.test_path)
 	
 	if args.predict:
 		# TODO complete: make a new parquet file to save predictions along dataset

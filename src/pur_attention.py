@@ -377,6 +377,7 @@ def parse_argument(prog: str = __name__, description: str = 'Experimentation on 
     # Model configuration
     parser.add_argument('--vectors', type=str, help='Pretrained vectors. See more in torchtext Vocab, example: glove.840B.300d')
     parser.add_argument('--dropout', type=float)
+    parser.add_argument('--opt', type=str, default='adam', help="the optimizer algorithm we use")
     parser.add_argument('--d_embedding', type=int, default=300, help='Embedding dimension, will be needed if vector is not precised')
     parser.add_argument('--num_layers', type=int, default=2, help='number of layers in the model')
     parser.add_argument('--num_heads', type=int, default=2, help='number of heads on each layer')
@@ -464,7 +465,8 @@ if __name__ == '__main__':
         num_heads=args.num_heads,
         d_embedding=args.d_embedding,
         data=args.data,
-        num_class=dm.num_class
+        num_class=dm.num_class,
+        opt=args.opt
     )
 
     # call back

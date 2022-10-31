@@ -1,5 +1,7 @@
 import json
 import os
+from os import path
+import shutil
 
 import torch
 
@@ -44,7 +46,7 @@ def hightlight_txt(txt, weights):
 	return highlighted_text
 
 
-def report_score(scores: dict, logger, score_dir) -> None:
+def report_score(scores: dict, logger, score_dir=None) -> None:
 	"""
 	Report scores into score.json and logger
 	:param scores: dictionary that has reported scores
@@ -64,12 +66,17 @@ def report_score(scores: dict, logger, score_dir) -> None:
 		log.info(score)
 		logger.log_metrics(score)
 		
-		#score_dir = args.test_path or logger.log_dir
-		os.makedirs(score_dir, exist_ok=True)
-		score_path = os.path.join(score_dir, f'score{"" if idx == 0 else "_" + str(idx)}.json')
+		if score_dir is not None:
+			os.makedirs(score_dir, exist_ok=True)
+			src = path.join(logger.log_dir, 'hparams.yaml')
+			dst = path.join(score_dir, 'hparams.yaml')
+			shutil.copy2(src, dst)
+			
+		score_path = path.join(score_dir or logger.log_dir, f'score{"" if idx == 0 else "_" + str(idx)}.json')
 		
 		with open(score_path, 'w') as fp:
 			json.dump(score, fp, indent='\t')
 			log.info(f'Score is saved at {score_path}')
-			
+		
+		
 		

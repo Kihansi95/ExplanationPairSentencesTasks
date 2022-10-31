@@ -29,15 +29,23 @@ class SingleCNNAttentionModule(pl.LightningModule):
 	             data='Unk data',
 	             num_class=-1,
 	             n_context=1,
+	             n_kernel=3,
 	             **kwargs):
 		super(SingleCNNAttentionModule, self).__init__()
 		
 		# log hyperparameters into hparams.yaml
-		self.save_hyperparameters('data', 'n_context', 'lambda_entropy', 'lambda_supervise', 'lambda_lagrange', 'lambda_heuristic')
+		self.save_hyperparameters(
+			'data',
+			'n_context',
+			'n_kernel',
+			'lambda_entropy',
+			'lambda_supervise',
+			'lambda_lagrange',
+			'lambda_heuristic')
 		self.data = data
 		
 		if pretrained_vectors is not None and isinstance(pretrained_vectors, str):
-			vector_path = path.join(cache_path, '../..', '.vector_cache')
+			vector_path = path.join(cache_path, '..', '.vector_cache')
 			os.makedirs(vector_path, exist_ok=True)
 			vectors = pretrained[pretrained_vectors](cache=vector_path)
 			pretrained_vectors = [vectors[token] for token in vocab.get_itos()]
@@ -49,6 +57,7 @@ class SingleCNNAttentionModule(pl.LightningModule):
 		                                 padding_idx=vocab[PAD_TOK],
 		                                 n_class=num_class,
 		                                 n_context=n_context,
+		                                 n_kernel=n_kernel,
 		                                 attention_raw=True)
 		
 		self.loss_fn = nn.CrossEntropyLoss()
@@ -102,7 +111,8 @@ class SingleCNNAttentionModule(pl.LightningModule):
 		return self.model(ids=ids, mask=mask)
 
 	def configure_optimizers(self):
-		optimizer = optim.Adam(self.parameters())
+		#optimizer = optim.Adam(self.parameters())
+		optimizer = optim.Adadelta(self.parameters())
 		return optimizer
 	
 	def training_step(self, batch, batch_idx, val=False):
