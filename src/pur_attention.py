@@ -59,15 +59,15 @@ class AttitModel(pl.LightningModule):
                                    d_embedding=kwargs['d_embedding'],
                                    freeze=False)
 
-        # for the calculus of the attention map
+        # model parameters
         self.num_heads = num_heads
         self.num_layers = num_layers
 
+        # optimization stuff
         self.loss_fn = nn.CrossEntropyLoss()
         self.opt = opt
         self.supervise_loss_fn = IoU()
         self.lagrange_loss_fn = nn.MSELoss()
-
         self.num_class = num_class
         self.vocab = vocab
         self._mode = mode
