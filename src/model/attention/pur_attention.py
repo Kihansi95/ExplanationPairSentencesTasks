@@ -8,6 +8,7 @@ from model.layers.attention import Attention
 from model.layers.fully_connected import FullyConnected
 from modules.logger import log
 
+
 # huggin face class for the positional encoding
 class PositionalEncoding(nn.Module):
 
@@ -15,7 +16,7 @@ class PositionalEncoding(nn.Module):
         super(PositionalEncoding, self).__init__()
         self.dropout = nn.Dropout(p=dropout)
 
-        self.pe = torch.zeros(max_len, d_model, requires_grad=False)
+        self.pe = torch.zeros(max_len, d_model, requires_grad=False) # we don't train the pe tensor.
         position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
         div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
         self.pe[:, 0::2] = torch.sin(position * div_term)
@@ -78,7 +79,6 @@ class PureAttention(nn.Module):
 
         # attention layers store attention layers in module list : keep the gradient in the graph.
         attention_raw = kwargs.get('attention_raw', False)
-        # TODO : check where is the problem in the gradient.
         self.attention_layers = nn.ModuleList([
             Attention(embed_dim=d_embedding,
                       num_heads=num_heads,
