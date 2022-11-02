@@ -67,7 +67,8 @@ def parse_argument(prog: str = __name__, description: str = 'Train LSTM-based at
 	parser.add_argument('--dropout', type=float)
 	parser.add_argument('--d_embedding', type=int, default=300, help='Embedding dimension, will be needed if vector is not precised')
 
-	parser.add_argument('--context', type=str, choices=ContextType.list())
+	#parser.add_argument('--context', type=str, choices=ContextType.list())
+	parser.add_argument('--n_kernel', type=int, default=3)
 	parser.add_argument('--n_context', type=int, default=1)
 	
 	# Data configuration
@@ -124,7 +125,6 @@ if __name__ == '__main__':
 	if args.resume:
 		log.warn('Resume from previous training')
 	
-	# Carbon tracking
 	dm_kwargs = dict(cache_path=DATA_CACHE,
 	                 batch_size=args.batch_size,
 	                 num_workers=args.num_workers,
@@ -166,7 +166,8 @@ if __name__ == '__main__':
 		n_context=args.n_context,
 		d_embedding=args.d_embedding,
 		data=args.data,
-		num_class=dm.num_class
+		num_class=dm.num_class,
+		n_kernel=args.n_kernel
 	)
 	
 
@@ -229,7 +230,7 @@ if __name__ == '__main__':
 	
 	if args.train or args.test:
 		scores = trainer.test(model=model, datamodule=dm)
-		report_score(scores, logger, args.test_path or logger.log_dir)
+		report_score(scores, logger, args.test_path)
 	
 	if args.predict:
 		# TODO complete: make a new parquet file to save predictions along dataset

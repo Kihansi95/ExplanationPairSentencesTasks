@@ -3,6 +3,7 @@ from torch import nn
 import torch.nn.functional as F
 
 from model.layers.attention import Attention
+from model.layers.convolution import ConvMultiKernel
 from model.layers.fully_connected import FullyConnected
 from modules.logger import log
 
@@ -37,18 +38,21 @@ class SingleCnnAttention(nn.Module):
 		# contextualization block
 		d_in_context = d_embedding
 		c_out = 100
-		kernel_size = 5
-		n_kernel = kwargs.get('n_kernel', 1)
+		n_kernel = kwargs.get('n_kernel', 3)
 		d_out_context = c_out * n_kernel
-		n_context = kwargs.get('n_context', 1) # TODO
+		# n_context = kwargs.get('n_context', 1) # TODO
 		
-		self.conv = nn.Conv2d(
-			in_channels=1,
-			out_channels=c_out,
-			kernel_size=(kernel_size, d_in_context),
-			padding=(kernel_size//2,0)
-		)
-		self.relu = nn.ReLU()
+		#kernel_sizes = range(1, 1+2*n_kernel, 2)
+		
+		self.conv = ConvMultiKernel(
+				in_channels=1,
+				out_channels=c_out,
+				kernels=n_kernel,
+				feature_dim=d_in_context,
+				activation='relu'
+			)
+		
+		#self.relu = nn.ReLU()
 		
 		d_attn = kwargs.get('d_attn', d_out_context)
 		
@@ -93,13 +97,19 @@ class SingleCnnAttention(nn.Module):
 		x = self.embedding(x)                       # (B, L, h)
 		x = x.unsqueeze(1)                          # (B, C_in, L, h)
 		
-		h_seq = self.conv(x)                        # (B, C_out, L, 1)
-		h_seq = self.relu(h_seq)
-		h_seq = h_seq.squeeze(-1)                   # (B, C_out, L)
+		# Contextualize
+		#h_seq = [conv(x) for conv in self.convs]    # n_kernel * (B, C_out, L, 1)
+		#h_seq = [self.relu(h) for h in h_seq]       # n_kernel * (B, C_out, L, 1)
+		#h_seq = [h.squeeze(-1) for h in h_seq]      # n_kernel * (B, C_out, L)
+		h_seq = self.conv(x)  # (B, n_kernel * C_out, L)
 		
 		# Get context vector by using max_pooling
-		h_context = F.max_pool1d(h_seq, h_seq.size(-1))  # (B, C_out, 1)
-		#h_context = h_context.squeeze(-1)           # (B, C_out)
+		# h_context = [F.max_pool1d(h, h.size(-1)) for h in h_seq ]  # n_kernel * (B, C_out, 1)
+		h_context = F.max_pool1d(h_seq, h_seq.size(-1))
+		
+		# Concat all channels
+		# h_context = torch.cat(h_context, 1)         # (B, n_kernel * C_out, 1)
+		# h_seq = torch.cat(h_seq, 1)                 # (B, n_kernel * C_out, L)
 		
 		# Reswapping dimension for attention
 		h_seq = h_seq.permute(0,2,1)                # (B, L, C_out)
