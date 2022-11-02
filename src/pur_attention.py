@@ -67,7 +67,7 @@ class AttitModel(pl.LightningModule):
         self.loss_fn = nn.CrossEntropyLoss()
         self.opt = opt
         self.supervise_loss_fn = IoU()
-        self.lagrange_loss_fn = nn.MSELoss()
+        self.lagrange_loss_fn = nn.L1Loss() # Lasso loss
         self.num_class = num_class
         self.vocab = vocab
         self._mode = mode
