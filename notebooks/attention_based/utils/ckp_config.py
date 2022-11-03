@@ -21,7 +21,11 @@ def gen_ckp(num_layers: int = 1,
 
     Returns:
         ckp : the checkpoint directory to the corresponding experience
+        hparams : path for the hparams of the model
     """
     ckp = path.join(log_path, name, f"{model}_{dataset}_l={num_layers}_h={num_heads}_run={run}", "checkpoints",
                     "best.ckpt")
-    return ckp
+
+    hparams = path.join(log_path, name, f"{model}_{dataset}_l={num_layers}_h={num_heads}_run={run}",
+                    "hparams.yaml")
+    return ckp, hparams

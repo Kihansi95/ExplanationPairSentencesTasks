@@ -12,11 +12,11 @@ from modules.logger import log
 # huggin face class for the positional encoding
 class PositionalEncoding(nn.Module):
 
-    def __init__(self, d_model, dropout=0, max_len=5000):
+    def __init__(self, d_model, dropout=0.0, max_len=5000):
         super(PositionalEncoding, self).__init__()
         self.dropout = nn.Dropout(p=dropout)
 
-        self.pe = torch.zeros(max_len, d_model, requires_grad=False) # we don't train the pe tensor.
+        self.pe = torch.zeros(max_len, d_model, requires_grad=False)  # we don't train the pe tensor.
         position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
         div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
         self.pe[:, 0::2] = torch.sin(position * div_term)
@@ -99,7 +99,6 @@ class PureAttention(nn.Module):
         """
         Args:
             **input_:
-
         Returns:
             A dictionnary for the outputs.
         """
@@ -113,9 +112,8 @@ class PureAttention(nn.Module):
 
         # non contextual embeddings
         x = self.embedding(x)  # shape of (N, L, h)
-
         # the positional encoding
-        # x = self.pe(x)
+        x = self.pe(x)
 
         attention_weights = []  # each element of the list is of size (N, H, L, L)
 
@@ -143,79 +141,3 @@ class PureAttention(nn.Module):
             "cls_tokens": cls_tokens,
             "logits": logits
         }
-
-
-if __name__ == '__main__':
-
-    import spacy
-    from torch import optim
-    from torch.nn.utils.rnn import pad_sequence
-    from torchtext.vocab import Vocab
-    from torchtext.data import get_tokenizer
-
-    # === Params ===
-    spacy_model = spacy.load('fr_core_news_md')
-    method = 'general'
-    h = spacy_model.vocab.vectors.shape[-1]
-
-    # === Examples ===
-    doc1 = [
-        'Bonjour tonton',
-        'Comment allez-vous?',
-        'Nik a les cheveux courts.'
-    ]
-    doc2 = [
-        'On l’utilise principalement entre copains, entre écoliers, entre jeunes…',
-        'Ce repas/plat était très bon!',
-        'Tina a les cheveux bouclés.'
-    ]
-    y = [0, 1, 2]
-
-    # Tokenize
-    # ==============
-    # tokenizer = Tokenizer(spacy_model=spacy_model, mode=2)
-    tokenizer = get_tokenizer('spacy', language="fr")  # spacy tokenizer, provided by torchtext
-    counter = tokenizer.count_tokens(doc1 + doc2)
-
-    vocab = Vocab(counter, specials=['<unk>', '<pad>', '<msk>'])
-    tokenizer.vocab = vocab
-    # === Test ===
-
-    # tokenize
-    x1 = [tokenizer.numericalize(d) for d in doc1]
-    x2 = [tokenizer.numericalize(d) for d in doc2]
-
-    # convert to tensor
-    x1 = [torch.tensor(x, dtype=torch.long) for x in x1]
-    x2 = [torch.tensor(x, dtype=torch.long) for x in x2]
-
-    x1 = pad_sequence(x1, batch_first=True)
-    x2 = pad_sequence(x2, batch_first=True)
-
-    y = torch.tensor(y, dtype=torch.long)
-
-    model = PureAttention(d_in=300, dropout=0, num_heads=1, num_layers=1)
-
-    model.train()
-
-    loss_fn = nn.CrossEntropyLoss()
-    optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
-
-    for epoch in range(1):
-        # reset optimizer
-        optimizer.zero_grad()
-
-        preds, _ = model([x1, x2])
-        loss = loss_fn(preds, y)
-
-        loss.backward()
-        optimizer.step()
-
-        running_loss = loss.item()
-        print("[{:0>3d}] loss: {:.3f}".format(epoch + 1, running_loss))
-
-    model.eval()
-    predict, _ = model([x1, x2])
-    predict = predict.detach()
-    print('Prediction:')
-    print(predict)
