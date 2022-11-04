@@ -181,6 +181,7 @@ class AttitModel(pl.LightningModule):
             'loss_entropy': loss_entropy,
             'loss_supervise': loss_supervise,
             'loss_lagrange': loss_lagrange,
+            'loss_key': loss_key,
             'y_hat': y_hat,
             'y_true': y_true,
             'a_hat': a_hat,
