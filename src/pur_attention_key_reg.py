@@ -21,7 +21,7 @@ from modules.const import SpecToken, Mode
 from modules.logger import log, init_logging
 from modules import metrics, env, rescale, INF
 
-from model.attention.pur_attention import PureAttention
+from model.attention.pur_attention_key import PureAttention
 from modules.loss import IoU
 
 
@@ -31,6 +31,7 @@ class AttitModel(pl.LightningModule):
                  lambda_entropy: float = 0.,
                  lambda_supervise: float = 0.,
                  lambda_lagrange: float = 0.,
+                 lambda_key_space: float = 0.,
                  data='Unk data',
                  num_class=-1,
                  num_layers=1,
@@ -40,7 +41,8 @@ class AttitModel(pl.LightningModule):
         super(AttitModel, self).__init__()
 
         # log hyperparameters into hparams.yaml
-        self.save_hyperparameters('data', 'num_layers', 'num_heads', 'lambda_entropy', 'lambda_supervise', 'lambda_lagrange')
+        self.save_hyperparameters('data', 'num_layers', 'num_heads', 'lambda_entropy', 'lambda_supervise',
+                                  'lambda_lagrange')
         self.data = data
 
         if pretrained_vectors is not None and isinstance(pretrained_vectors, str):
@@ -67,10 +69,11 @@ class AttitModel(pl.LightningModule):
         self.loss_fn = nn.CrossEntropyLoss()
         self.opt = opt
         self.supervise_loss_fn = IoU()
-        self.lagrange_loss_fn = nn.L1Loss() # Lasso loss
+        self.lagrange_loss_fn = nn.L1Loss()  # Lasso loss
         self.num_class = num_class
         self.vocab = vocab
         self._mode = mode
+        self.lambda_key = lambda_key_space
         self.lambda_entropy = lambda_entropy
         self.lambda_supervise = lambda_supervise
         self.lambda_lagrange = lambda_lagrange
@@ -121,30 +124,39 @@ class AttitModel(pl.LightningModule):
 
     def training_step(self, batch, batch_idx, val=False):
         y_true = batch['y_true']
-        padding_mask = batch['padding_mask'].bool()
+        padding_mask = batch['padding_mask'].bool()  # (N, L)
         a_true = batch['a_true']
         a_true_entropy = batch['a_true_entropy']
-        log.debug(f"token ids : {batch['token_ids']}")
         output_model = self(ids=batch['token_ids'], mask=padding_mask)
 
         # training part
         y_hat = output_model["logits"]
+        K = torch.stack(output_model["key_embeddings"], dim=1)[:, 0, :, :]  # we work only on one layer
         loss_classif = self.loss_fn(y_hat, y_true)
 
         # construction of the attention map with a_hat
-        attention_tensor = torch.stack(output_model['attn_weights'], dim=1)  # [N, num_layers, L, L]
-        agreg_mask = ((~padding_mask).float()).clone().detach().to(self.device) \
-            .unsqueeze(1).unsqueeze(1) \
-            .repeat(1, self.num_layers, batch['token_ids'].shape[1], 1)
-        pad_mask = torch.transpose(agreg_mask, dim0=2, dim1=3)
-        attention_tensor = torch.mul(attention_tensor, pad_mask)
-        a_hat = attention_tensor.sum(dim=1).sum(dim=1)
+        attention_tensor = torch.stack(output_model['attn_weights'], dim=1)  # [N, 1, L, L]
+        # in this model we work on the CLS line.
+        a_hat = attention_tensor[:, 0, 0, :]  # of size (N, L)
 
         # ENTROPY
         entropy_mask = padding_mask.float().clone().detach().to(self.device)
         entropy_mask[:, 0] = 1.  # we don't take into account the CLS token
         a_hat_entropy = metrics.entropy(a_hat, entropy_mask.bool(), normalize=True)
         loss_entropy = a_hat_entropy.mean()  # mean of the entropy over a batch
+
+        # KEY SPACE WORK : recall bmm batch matrix multiplication
+        dot_prod = torch.bmm(K, torch.transpose(K, 1, 2))  # dot product
+        v = torch.diagonal(dot_prod, offset=0, dim1=1, dim2=2).unsqueeze(-1)
+        nms = torch.sqrt(torch.bmm(v, torch.transpose(v, 1, 2)))  # norm calculus
+        s_mat = dot_prod / nms  # shape of (N, L, L)
+        buff = (~padding_mask).float().unsqueeze(1).repeat(1, batch["token_ids"].shape[1], 1)
+        s_mat = s_mat * buff
+        s_mat = s_mat * torch.transpose(buff, 1, 2)
+        t_s = (~padding_mask).float().sum(dim=-1)  # number of tokens in the sentence
+        den = t_s * (t_s - 1)
+        num = s_mat.sum(dim=-1).sum(dim=-1) - torch.diagonal(s_mat, offset=0, dim1=1, dim2=2).sum(dim=-1)
+        loss_key = (num / den).mean()
 
         # Sigmoid for IoU loss
         flat_a_hat, flat_a_true = self.flatten_attention(a_hat=a_hat, a_true=a_true.int(), condition=y_true > 0,
@@ -161,8 +173,9 @@ class AttitModel(pl.LightningModule):
         # add all the regularization parts
         loss = loss_classif + self.lambda_entropy * loss_entropy + \
                self.lambda_supervise * loss_supervise + \
-               self.lambda_lagrange * loss_lagrange
-        #a_hat_buff = a_hat.clone().detach()
+               self.lambda_lagrange * loss_lagrange + \
+               self.lambda_key * loss_key
+        # a_hat_buff = a_hat.clone().detach()
         return {
             'loss': loss,
             'loss_entropy': loss_entropy,
@@ -376,15 +389,18 @@ def parse_argument(prog: str = __name__, description: str = 'Experimentation on 
     parser.add_argument('--track_grad_norm', type=int, default=-1)
 
     # Model configuration
-    parser.add_argument('--vectors', type=str, help='Pretrained vectors. See more in torchtext Vocab, example: glove.840B.300d')
+    parser.add_argument('--vectors', type=str,
+                        help='Pretrained vectors. See more in torchtext Vocab, example: glove.840B.300d')
     parser.add_argument('--dropout', type=float)
     parser.add_argument('--opt', type=str, default='adam', help="the optimizer algorithm we use")
-    parser.add_argument('--d_embedding', type=int, default=300, help='Embedding dimension, will be needed if vector is not precised')
+    parser.add_argument('--d_embedding', type=int, default=300,
+                        help='Embedding dimension, will be needed if vector is not precised')
     parser.add_argument('--num_layers', type=int, default=1, help='number of layers in the model')
     parser.add_argument('--num_heads', type=int, default=1, help='number of heads on each layer')
 
     # Data configuration
-    parser.add_argument('--n_data', '-n', type=int, default=-1, help='Maximum data number for train+val+test, -1 if full dataset. Default: -1')
+    parser.add_argument('--n_data', '-n', type=int, default=-1,
+                        help='Maximum data number for train+val+test, -1 if full dataset. Default: -1')
     parser.add_argument('--data', '-d', type=str, default="esnli", help='Choose dataset to train model')
 
     # Fit configuration
@@ -392,13 +408,14 @@ def parse_argument(prog: str = __name__, description: str = 'Experimentation on 
 
     # Predict configuration
     parser.add_argument('--test_path', type=str, help='Path to which model give output score')
-    
+
     # Pipeline
     parser.add_argument('--train', action='store_true')
     parser.add_argument('--test', action='store_true')
     parser.add_argument('--predict', action='store_true')
-    
+
     # Regularizer
+    parser.add_argument('--lambda_key', type=float, default=0., help='multiplier for key space geometry')
     parser.add_argument('--lambda_entropy', type=float, default=0., help='multiplier for entropy')
     parser.add_argument('--lambda_supervise', type=float, default=0., help='multiplier for supervise')
     parser.add_argument('--lambda_lagrange', type=float, default=0.,
@@ -415,7 +432,7 @@ def parse_argument(prog: str = __name__, description: str = 'Experimentation on 
 
 # const for mode
 if __name__ == '__main__':
-    
+
     args = parse_argument()
     if not (args.train or args.test or args.predict):
         args.train = True
@@ -458,6 +475,7 @@ if __name__ == '__main__':
         cache_path=MODEL_CACHE,
         mode=args.mode,
         vocab=dm.vocab,
+        lambda_key_space=args.lambda_key,
         lambda_entropy=args.lambda_entropy,
         lambda_supervise=args.lambda_supervise,
         lambda_lagrange=args.lambda_lagrange,
@@ -471,8 +489,9 @@ if __name__ == '__main__':
     )
 
     # call back
-    early_stopping = cb.EarlyStopping('VAL/loss', patience=5, verbose=args.mode != Mode.EXP, mode='min')  # stop if no improvement withing 10 epochs
-    
+    early_stopping = cb.EarlyStopping('VAL/loss', patience=5, verbose=args.mode != Mode.EXP,
+                                      mode='min')  # stop if no improvement withing 10 epochs
+
     model_checkpoint = cb.ModelCheckpoint(
         filename='best',
         monitor='VAL/loss', mode='min',  # save the minimum val_loss
@@ -504,7 +523,7 @@ if __name__ == '__main__':
     # Set up output path
     ckpt_path = path.join(logger.log_dir, 'checkpoints', 'best.ckpt')
     hparams_path = path.join(logger.log_dir, 'hparams.yaml')
-    
+
     if args.train:
         model = AttitModel(**model_args)
         trainer.fit(model, datamodule=dm, ckpt_path=ckpt_path if args.resume else None)
@@ -513,24 +532,23 @@ if __name__ == '__main__':
         model = AttitModel.load_from_checkpoint(checkpoint_path=ckpt_path, hparams_file=hparams_path, **model_args)
 
     if args.train or args.test:
-    
+
         scores = trainer.test(
             model=model,
             datamodule=dm,
         )
-    
+
         # remove 'TEST/' from score dicts:
         scores = [{k.replace('TEST/', ''): v for k, v in s.items()} for s in scores]
-    
+
         for idx, score in enumerate(scores):
             log.info(score)
             logger.log_metrics(score)
-        
+
             score_dir = args.test_path or logger.log_dir
             os.makedirs(score_dir, exist_ok=True)
             score_path = path.join(score_dir, f'score{"" if idx == 0 else "_" + str(idx)}.json')
-        
+
             with open(score_path, 'w') as fp:
                 json.dump(score, fp, indent='\t')
                 log.info(f'Score is saved at {score_path}')
-
