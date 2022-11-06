@@ -4,7 +4,7 @@ import json
 from argparse import ArgumentParser
 from codecarbon import EmissionsTracker
 
-from model_module import SingleCNNAttentionModule
+from model_module import SingleCNNAttentionModule, DualCNNAttentionModule
 from modules import report_score
 from modules.const import InputType, Mode, ContextType
 from modules.logger import init_logging
@@ -173,8 +173,8 @@ if __name__ == '__main__':
 
 	if dm.input_type == InputType.SINGLE:
 		ModelModule = SingleCNNAttentionModule
-	# elif dm.input_type == InputType.DUAL:
-	# 	ModelModule = DualLSTMAttentionModule
+	elif dm.input_type == InputType.DUAL:
+	 	ModelModule = DualCNNAttentionModule
 	else:
 		msg = f'Unknown input type of dm {str(dm)}: {dm.input_type}'
 		log.error(msg)

@@ -21,7 +21,6 @@ class SingleCnnAttention(nn.Module):
 		
 		# embedding layers
 		freeze = kwargs.get('freeze', False)
-		
 		self.n_classes = n_class
 		dropout = kwargs.get('dropout', 0.)
 		
@@ -98,18 +97,10 @@ class SingleCnnAttention(nn.Module):
 		x = x.unsqueeze(1)                          # (B, C_in, L, h)
 		
 		# Contextualize
-		#h_seq = [conv(x) for conv in self.convs]    # n_kernel * (B, C_out, L, 1)
-		#h_seq = [self.relu(h) for h in h_seq]       # n_kernel * (B, C_out, L, 1)
-		#h_seq = [h.squeeze(-1) for h in h_seq]      # n_kernel * (B, C_out, L)
-		h_seq = self.conv(x)  # (B, n_kernel * C_out, L)
+		h_seq = self.conv(x)                        # (B, n_kernel * C_out, L)
 		
 		# Get context vector by using max_pooling
-		# h_context = [F.max_pool1d(h, h.size(-1)) for h in h_seq ]  # n_kernel * (B, C_out, 1)
-		h_context = F.max_pool1d(h_seq, h_seq.size(-1))
-		
-		# Concat all channels
-		# h_context = torch.cat(h_context, 1)         # (B, n_kernel * C_out, 1)
-		# h_seq = torch.cat(h_seq, 1)                 # (B, n_kernel * C_out, L)
+		h_context = F.max_pool1d(h_seq, h_seq.size(-1)) # (B, n_kernel * C_out, 1)
 		
 		# Reswapping dimension for attention
 		h_seq = h_seq.permute(0,2,1)                # (B, L, C_out)
