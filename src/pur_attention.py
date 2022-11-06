@@ -124,14 +124,13 @@ class AttitModel(pl.LightningModule):
         padding_mask = batch['padding_mask'].bool()
         a_true = batch['a_true']
         a_true_entropy = batch['a_true_entropy']
-        log.debug(f"token ids : {batch['token_ids']}")
         output_model = self(ids=batch['token_ids'], mask=padding_mask)
 
-        # training part
+        # TRAIN
         y_hat = output_model["logits"]
         loss_classif = self.loss_fn(y_hat, y_true)
 
-        # construction of the attention map with a_hat
+        # A_HAT
         attention_tensor = torch.stack(output_model['attn_weights'], dim=1)  # [N, num_layers, L, L]
         agreg_mask = ((~padding_mask).float()).clone().detach().to(self.device) \
             .unsqueeze(1).unsqueeze(1) \
@@ -158,11 +157,11 @@ class AttitModel(pl.LightningModule):
 
         loss_lagrange = self.lagrange_loss_fn(a_hat_entropy, a_true_entropy)
 
-        # add all the regularization parts
+        # REGULARIZATION
         loss = loss_classif + self.lambda_entropy * loss_entropy + \
                self.lambda_supervise * loss_supervise + \
                self.lambda_lagrange * loss_lagrange
-        #a_hat_buff = a_hat.clone().detach()
+
         return {
             'loss': loss,
             'loss_entropy': loss_entropy,
