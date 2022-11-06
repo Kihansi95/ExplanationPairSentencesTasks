@@ -134,9 +134,8 @@ class AttitModel(pl.LightningModule):
         K = torch.stack(output_model["key_embeddings"], dim=1)[:, 0, :, :]  # we work only on one layer
         loss_classif = self.loss_fn(y_hat, y_true)
 
-        # construction of the attention map with a_hat
+        # A_HAT (CLS line)
         attention_tensor = torch.stack(output_model['attn_weights'], dim=1)  # [N, 1, L, L]
-        # in this model we work on the CLS line.
         a_hat = attention_tensor[:, 0, 0, :]  # of size (N, L)
 
         # ENTROPY
