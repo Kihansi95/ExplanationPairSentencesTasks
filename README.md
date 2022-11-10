@@ -48,7 +48,7 @@ and `requirements.gpu.txt` (dependencies for GPU).
 ```bash
 python -m venv eps
 source eps/bin/activate
-pip install -r requirements.cpu.txt --extra-index-url https://download.pytorch.org/whl/cu113
+pip install -r requirements.cpu.txt --no-cache-dir --extra-index-url https://download.pytorch.org/whl/cu113
 ```
 
 2. Run an experimentation.

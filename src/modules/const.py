@@ -1,7 +1,7 @@
 from enum import Enum
 
+# abstract enum
 class ExtendedEnum(Enum):
-
 	@classmethod
 	def list(cls):
 		return list(map(lambda c: c.value, cls))
@@ -33,3 +33,12 @@ class ContextType(str, ExtendedEnum):
 	LSTM='lstm'
 	CNN='cnn'
 	ATTENTION='attention'
+	
+# Data choice
+class Data(str, ExtendedEnum):
+	ESNLI='esnli'
+	HATEXPLAIN='hatexplain'
+	YELPHAT='yelphat'
+	YELPHAT50 = 'yelphat50'
+	YELPHAT100 = 'yelphat100'
+	YELPHAT200 = 'yelphat200'

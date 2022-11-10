@@ -59,7 +59,6 @@ class PureAttention(nn.Module):
         self.n_classes = n_class
         dropout = kwargs.get('dropout', 0.)
         num_heads = kwargs.get('num_heads', 1)
-        activation = kwargs.get('activation', 'relu')
         num_layers = kwargs.get('num_layers', 1)
 
         assert (num_heads >= 1), 'please put at least one head'

@@ -13,13 +13,13 @@ from torchtext.vocab.vectors import pretrained_aliases as pretrained
 
 import torchmetrics as m
 
-from data_module.hatexplain import HateXPlainDM
+from data_module.hatexplain import  CLSTokenHateXPlainDM
 from data_module.yelp_hat import *
 from data_module.esnli import ESNLIDM
 from modules.const import SpecToken, Mode
 
 from modules.logger import log, init_logging
-from modules import metrics, env, rescale, INF
+from modules import metrics, rescale, INF
 
 from model.attention.pur_attention import PureAttention
 from modules.loss import IoU
@@ -432,20 +432,20 @@ if __name__ == '__main__':
     dm_kwargs = dict(cache_path=DATA_CACHE,
                      batch_size=args.batch_size,
                      num_workers=args.num_workers,
-                     n_data=args.n_data,
-                     pur_attention=True)
+                     n_data=args.n_data)
 
     if args.data == 'hatexplain':
-        dm = HateXPlainDM(**dm_kwargs)
+        dm = CLSTokenHateXPlainDM(**dm_kwargs)
     elif args.data == 'yelphat':
-        dm = YelpHatDM(**dm_kwargs)
+        dm = CLSTokenYelpHatDM(**dm_kwargs)
     elif args.data == 'yelphat50':
-        dm = YelpHat50DM(**dm_kwargs)
+        dm = CLSTokenYelpHat50DM(**dm_kwargs)
     elif args.data == 'yelphat100':
-        dm = YelpHat100DM(**dm_kwargs)
+        dm = CLSTokenYelpHat100DM(**dm_kwargs)
     elif args.data == 'yelphat200':
-        dm = YelpHat200DM(**dm_kwargs)
+        dm = CLSTokenYelpHat200DM(**dm_kwargs)
     elif args.data == 'esnli':
+        raise ValueError('Not implemented yet')
         dm = ESNLIDM(**dm_kwargs)
     else:
         log.error(f'Unrecognized dataset: {args.data}')

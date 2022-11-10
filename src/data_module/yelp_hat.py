@@ -13,16 +13,15 @@ from os import path
 
 from data.transforms import EntropyTransform
 from data.yelp_hat.spacy_pretok_dataset import SpacyPretokenizeYelpHat
-from data_module.constant import *
 from modules import env
-from modules.const import Normalization
+from modules.const import Normalization, SpecToken
 from modules.logger import log
 
 class YelpHatDM(pl.LightningDataModule):
 	
 	name='YelpHat'
 	
-	def __init__(self, cache_path, batch_size=8, num_workers=0, n_data=-1):
+	def __init__(self, cache_path, batch_size=8, num_workers=0, n_data=-1, shuffle=True):
 		super().__init__()
 		self.cache_path = cache_path
 		self.batch_size = batch_size
@@ -30,6 +29,7 @@ class YelpHatDM(pl.LightningDataModule):
 		self.n_data = n_data
 		self.num_workers = num_workers
 		self.spacy_model = spacy.load('en_core_web_sm')
+		self.shuffle = shuffle
 		self.num_class = SpacyPretokenizeYelpHat.NUM_CLASS
 		self.input_type = SpacyPretokenizeYelpHat.INPUT
 	
@@ -62,9 +62,9 @@ class YelpHatDM(pl.LightningDataModule):
 			# Build vocabulary from iterator. We don't know yet how long does it take
 			iter_tokens = tqdm(iter(dp), desc='Building vocabulary', total=len(dp), unit='sents', file=sys.stdout, disable=env.disable_tqdm)
 			if env.disable_tqdm: log.info(f'Building vocabulary')
-			vocab = build_vocab_from_iterator(iterator=iter_tokens, specials=[PAD_TOK, UNK_TOK])
-			# vocab = build_vocab_from_iterator(iter(doc for doc in train_set['post_tokens']), specials=[PAD_TOK, UNK_TOK])
-			vocab.set_default_index(vocab[UNK_TOK])
+			vocab = build_vocab_from_iterator(iterator=iter_tokens, specials=[SpecToken.PAD, SpecToken.UNK])
+			# vocab = build_vocab_from_iterator(iter(doc for doc in train_set['post_tokens']), specials=[SpecToken.PAD, SpecToken.UNK])
+			vocab.set_default_index(vocab[SpecToken.UNK])
 			
 			# Announce where we save the vocabulary
 			torch.save(vocab, vocab_path, pickle_protocol=pickle.HIGHEST_PROTOCOL)  # Use highest protocol to speed things up
@@ -85,7 +85,7 @@ class YelpHatDM(pl.LightningDataModule):
 		# predefined processing mapper for setup
 		self.text_transform = T.Sequential(
 			T.VocabTransform(self.vocab),
-			T.ToTensor(padding_value=self.vocab[PAD_TOK])
+			T.ToTensor(padding_value=self.vocab[SpecToken.PAD])
 		)
 		
 		self.ham_transform = T.Sequential(
@@ -119,7 +119,7 @@ class YelpHatDM(pl.LightningDataModule):
 			self.test_sets = {key: SpacyPretokenizeYelpHat(split=key, **dataset_kwargs) for key in ['yelp50', 'yelp100', 'yelp200']}
 	
 	def train_dataloader(self):
-		return DataLoader(self.train_set, batch_size=self.batch_size, shuffle=True, collate_fn=self.collate, num_workers=self.num_workers)
+		return DataLoader(self.train_set, batch_size=self.batch_size, shuffle=self.shuffle, collate_fn=self.collate, num_workers=self.num_workers)
 	
 	def val_dataloader(self):
 		return DataLoader(self.val_set, batch_size=self.batch_size, shuffle=False, collate_fn=self.collate, num_workers=self.num_workers)
@@ -147,7 +147,7 @@ class YelpHatDM(pl.LightningDataModule):
 			'y_true': self.label_transform(batch['label'])
 		}
 		
-		b['padding_mask'] = b['token_ids'] == self.vocab[PAD_TOK]
+		b['padding_mask'] = b['token_ids'] == self.vocab[SpecToken.PAD]
 		b['a_true_entropy'] = self.entropy_transform(b['a_true'], b['padding_mask'])
 		
 		return b
@@ -157,7 +157,6 @@ class YelpHatDM(pl.LightningDataModule):
 		if isinstance(batch, dict): return {k: list(v) for k, v in batch.items()}  # handle case where no batch
 		return {k: [row[k] for row in batch] for k in batch[0]}
 	
-
 class YelpHat50DM(YelpHatDM):
 	name = 'YelpHat-50'
 	
@@ -177,10 +176,9 @@ class YelpHat50DM(YelpHatDM):
 	
 	def test_dataloader(self):
 		return DataLoader(self.test_set, batch_size=self.batch_size, shuffle=False, collate_fn=self.collate, num_workers=self.num_workers)
-	
-	
+		
 class YelpHat100DM(YelpHat50DM):
-	
+
 	name = 'YelpHat-100'
 	
 	def __init__(self, **kwargs):
@@ -193,9 +191,9 @@ class YelpHat100DM(YelpHat50DM):
 		
 		if (stage == 'test' or stage is None) and not hasattr(self, 'test_set'):
 			self.test_set = SpacyPretokenizeYelpHat(split='yelp100', root=self.cache_path, n_data=self.n_data)
-	
-	
+		
 class YelpHat200DM(YelpHat50DM):
+	
 	name = 'YelpHat-200'
 	
 	def __init__(self, **kwargs):
@@ -208,5 +206,72 @@ class YelpHat200DM(YelpHat50DM):
 		
 		if (stage == 'test' or stage is None) and not hasattr(self, 'test_set'):
 			self.test_set = SpacyPretokenizeYelpHat(split='yelp200', root=self.cache_path, n_data=self.n_data)
+		
 			
-			
+class CLSTokenYelpHatDM(YelpHatDM):
+	
+	def collate(self, batch):
+		b = super(CLSTokenYelpHatDM, self).collate(batch)
+		
+		# adding CLS token at the beginning
+		cls_ids = torch.tensor([self.vocab[SpecToken.CLS]]).repeat(self.batch_size, 1)
+		cls_pad = torch.tensor([0.]).repeat(self.batch_size, 1)  # we contextualise the CLS token
+		att_pad = torch.tensor([0.]).repeat(self.batch_size, 1)
+		
+		# udpate classic batch with adding
+		b.update({
+			'token_ids': torch.cat((cls_ids, b['token_ids']), 1),
+			'padding_mask': torch.cat((cls_pad, b['padding_mask']), 1),
+			'a_true': torch.cat((att_pad, b['a_true']), 1),
+		})
+		log.debug(f'tokens_ids={b["token_ids"]}')
+		log.debug(f'CLS={self.vocab[SpecToken.CLS]}')
+		return b
+	
+class CLSTokenYelpHat50DM(CLSTokenYelpHatDM):
+	def __init__(self, **kwargs):
+		super(CLSTokenYelpHat50DM, self).__init__(**kwargs)
+	
+	def setup(self, stage: str = None):
+		dataset_kwargs = dict(root=self.cache_path, n_data=self.n_data)
+		
+		# called on every GPU
+		if stage == 'fit' or stage is None:
+			self.train_set = SpacyPretokenizeYelpHat(split='train', **dataset_kwargs)
+			self.val_set = SpacyPretokenizeYelpHat(split='val', **dataset_kwargs)
+		
+		if (stage == 'test' or stage is None) and not hasattr(self, 'test_set'):
+			self.test_set = SpacyPretokenizeYelpHat(split='yelp50', **dataset_kwargs)
+	
+	def test_dataloader(self):
+		return DataLoader(self.test_set, batch_size=self.batch_size, shuffle=False, collate_fn=self.collate, num_workers=self.num_workers)
+
+
+class CLSTokenYelpHat100DM(CLSTokenYelpHat50DM):
+	name = 'YelpHat-100'
+	
+	def __init__(self, **kwargs):
+		super(CLSTokenYelpHat100DM, self).__init__(**kwargs)
+	
+	def setup(self, stage: str = None):
+		
+		if stage == 'fit' or stage is None:
+			super(CLSTokenYelpHat100DM, self).setup(stage)
+		
+		if (stage == 'test' or stage is None) and not hasattr(self, 'test_set'):
+			self.test_set = SpacyPretokenizeYelpHat(split='yelp100', root=self.cache_path, n_data=self.n_data)
+
+
+class CLSTokenYelpHat200DM(CLSTokenYelpHat50DM):
+	name = 'YelpHat-200'
+	
+	def __init__(self, **kwargs):
+		super(CLSTokenYelpHat200DM, self).__init__(**kwargs)
+	
+	def setup(self, stage: str = None):
+		
+		if stage == 'fit' or stage is None:
+			super(CLSTokenYelpHat200DM, self).setup(stage)
+		
+		if (stage == 'test' or stage is None) and not hasattr(self, 'test_set'):
+			self.test_set = SpacyPretokenizeYelpHat(split='yelp200', root=self.cache_path, n_data=self.n_data)

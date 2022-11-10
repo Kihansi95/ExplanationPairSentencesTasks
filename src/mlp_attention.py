@@ -4,6 +4,7 @@ import json
 from argparse import ArgumentParser
 from codecarbon import EmissionsTracker
 
+from model_module.uncontext.single_ekey_lquery_module import SingleEkeyLqueryModule
 from modules import report_score
 from modules.const import InputType, Mode
 from modules.logger import init_logging
@@ -12,8 +13,6 @@ from modules.logger import log
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning import callbacks as cb
-
-from model_module import DualLSTMAttentionModule, SingleLSTMAttentionModule
 
 def get_num_workers() -> int:
 	"""
@@ -67,13 +66,12 @@ def parse_argument(prog: str = __name__, description: str = 'Train LSTM-based at
 	parser.add_argument('--vectors', type=str, help='Pretrained vectors. See more in torchtext Vocab, example: glove.840B.300d')
 	parser.add_argument('--dropout', type=float)
 	parser.add_argument('--d_embedding', type=int, default=300, help='Embedding dimension, will be needed if vector is not precised')
-	parser.add_argument('--d_hidden_lstm', type=int, default=-1)
-	parser.add_argument('--n_lstm', type=int, default=1)
+	parser.add_argument('--n_context', type=int, default=1)
+	parser.add_argument('--concat_context', action='store_true')
 	
 	# Data configuration
 	parser.add_argument('--n_data', '-n', type=int, default=-1, help='Maximum data number for train+val+test, -1 if full dataset. Default: -1')
-	parser.add_argument('--data', '-d', type=str, help=f'Choose dataset to train model, possible choice: esnli, hatexplain, yelphat')
-	parser.add_argument('--shuffle_off', action='store_true', help='Turn off shuffle in training cycle. Used for debug large dataset.')
+	parser.add_argument('--data', '-d', type=str, help='Choose dataset to train model')
 	
 	# Fit configuration
 	parser.add_argument('--resume', action='store_true', help='Resume training from the last checkpoint if there is')
@@ -95,7 +93,6 @@ def parse_argument(prog: str = __name__, description: str = 'Train LSTM-based at
 	parser.add_argument('--lambda_lagrange', type=float, default=0., help='multiplier for relaxation of Lagrange (Supervision by entropy)')
 	
 	params = parser.parse_args()
-	params.shuffle = not params.shuffle_off
 	print('=== Parameters ===')
 	print(json.dumps(vars(params), indent=4))
 	
@@ -126,12 +123,11 @@ if __name__ == '__main__':
 	if args.resume:
 		log.warn('Resume from previous training')
 	
-	# Init data module
+	# Carbon tracking
 	dm_kwargs = dict(cache_path=DATA_CACHE,
 	                 batch_size=args.batch_size,
 	                 num_workers=args.num_workers,
-	                 n_data=args.n_data,
-	                 shuffle=args.shuffle)
+	                 n_data=args.n_data)
 	
 	if args.data == 'hatexplain':
 		from data_module.hatexplain import HateXPlainDM
@@ -166,17 +162,17 @@ if __name__ == '__main__':
 		lambda_lagrange=args.lambda_lagrange,
 		lambda_heuristic=args.lambda_heuristic,
 		pretrained_vectors=args.vectors,
-		n_lstm=args.n_lstm,
-		d_hidden_lstm=args.d_hidden_lstm,
+		n_context=args.n_context,
+		concat_context=args.concat_context,
 		d_embedding=args.d_embedding,
 		data=args.data,
 		num_class=dm.num_class
 	)
 	
 	if dm.input_type == InputType.SINGLE:
-		ModelModule = SingleLSTMAttentionModule
-	elif dm.input_type == InputType.DUAL:
-		ModelModule = DualLSTMAttentionModule
+		ModelModule = SingleEkeyLqueryModule
+	#elif dm.input_type == InputType.DUAL:
+		#ModelModule = DualLSTMAttentionModule
 	else:
 		msg = f'Unknown input type of dm {str(dm)}: {dm.input_type}'
 		log.error(msg)
