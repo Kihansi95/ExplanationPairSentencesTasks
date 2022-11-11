@@ -111,32 +111,42 @@ class PureAttention(nn.Module):
         mask = input_.get('mask', torch.zeros_like(x))
 
         # non contextual embeddings
+        hidden_states = []
         x = self.embedding(x)  # shape of (N, L, h)
+        hidden_states.append(x) # first hidden states is the embeddings
         # the positional encoding
         x = self.pe(x)
 
         attention_weights = []  # each element of the list is of size (N, H, L, L)
+        hidden_states = []
 
         for i, l in enumerate(self.attention_layers):
             # Compute attention : contextualization of the embeddings
             # compute the attention on the embeddings
             # /!\ the attention weights are already averaged on the number of heads.
-            x, attn_weights = l(query=x,
-                                key=x,
-                                value=x,
-                                key_padding_mask=mask
-                                )
+            # TODO : add connections to help the gradient.
 
-            attention_weights.append(attn_weights)  # we add the different attention weights while we progress.
+            context, attn_weights = l(query=x,
+                                      key=x,
+                                      value=x,
+                                      key_padding_mask=mask
+                                      )
+            # connection with the previous layer
+            x = context + x
+            x = torch.nn.functional.normalize(x, 2)
+
+            # update the different states
+            hidden_states.append(x)
+            attention_weights.append(attn_weights)
 
         # cls token of the last hidden state
         cls_tokens = x[:, 0, :]
         # log.debug(f"cls_tok : {cls_tokens}")
-
         logits = self.classifier(cls_tokens)
 
         return {
             "last_hidden_states": x,
+            "hidden_states": hidden_states,
             "attn_weights": attention_weights,
             "cls_tokens": cls_tokens,
             "logits": logits
