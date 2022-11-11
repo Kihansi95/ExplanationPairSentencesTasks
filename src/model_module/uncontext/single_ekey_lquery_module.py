@@ -10,16 +10,16 @@ from torchtext.vocab.vectors import pretrained_aliases as pretrained
 import torchmetrics as m
 
 from data_module.yelp_hat import *
+from model.uncontext.single_ekey_lquery_attention import SingleEkeyLquery
 from modules.const import Mode
 
 from modules.logger import log
 from modules import metrics, rescale, INF
 
-from model.lstm.single_lstm_attention import SingleLstmAttention
 from modules.loss import IoU, KLDivLoss
 
 
-class SingleLSTMAttentionModule(pl.LightningModule):
+class SingleEkeyLqueryModule(pl.LightningModule):
 	
 	def __init__(self, cache_path, mode, vocab, pretrained_vectors: Union[str, torch.tensor]=None,
 	             lambda_entropy:float = 0.,
@@ -28,12 +28,20 @@ class SingleLSTMAttentionModule(pl.LightningModule):
 	             lambda_heuristic:float = 0.,
 	             data='Unk data',
 	             num_class=-1,
-	             n_lstm=1,
+	             n_context=1,
+	             concat_context:bool=True,
 	             **kwargs):
-		super(SingleLSTMAttentionModule, self).__init__()
+		super(SingleEkeyLqueryModule, self).__init__()
 		
 		# log hyperparameters into hparams.yaml
-		self.save_hyperparameters('data', 'n_lstm', 'lambda_entropy', 'lambda_supervise', 'lambda_lagrange', 'lambda_heuristic')
+		self.save_hyperparameters(
+			'data',
+			'concat_context',
+			'n_context',
+			'lambda_entropy',
+			'lambda_supervise',
+			'lambda_lagrange',
+			'lambda_heuristic')
 		self.data = data
 		
 		if pretrained_vectors is not None and isinstance(pretrained_vectors, str):
@@ -43,12 +51,13 @@ class SingleLSTMAttentionModule(pl.LightningModule):
 			pretrained_vectors = [vectors[token] for token in vocab.get_itos()]
 			pretrained_vectors = torch.stack(pretrained_vectors)
 
-		self.model = SingleLstmAttention(pretrained_embedding=pretrained_vectors,
+		self.model = SingleEkeyLquery(pretrained_embedding=pretrained_vectors,
 		                                 vocab_size=len(vocab),
 		                                 d_embedding=kwargs['d_embedding'],
 		                                 padding_idx=vocab[PAD_TOK],
 		                                 n_class=num_class,
-		                                 n_lstm=n_lstm,
+		                                 n_context=n_context,
+		                                 concat_context=concat_context,
 		                                 attention_raw=True)
 		
 		self.loss_fn = nn.CrossEntropyLoss()
@@ -56,6 +65,7 @@ class SingleLSTMAttentionModule(pl.LightningModule):
 		self.lagrange_loss_fn = nn.MSELoss()
 		self.heuristic_loss_fn = KLDivLoss(reduction='batchmean', log_target=True)
 		
+		self.concat_context:bool = concat_context
 		self.num_class = num_class
 		self.vocab = vocab
 		self._mode = mode
@@ -75,8 +85,8 @@ class SingleLSTMAttentionModule(pl.LightningModule):
 			template_attention_metrics = m.MetricCollection({
 				'a:AUROC': m.AUROC(average='micro'),
 				'a:AUPRC': m.AveragePrecision(average='micro'),
-				'a:AURecall': metrics.AURecall(),
-				'a:AUPrecision': metrics.AUPrecision(),
+				'a:Recall': metrics.AURecall(),
+				'a:Precision': metrics.AUPrecision(),
 				'a:Jaccard': metrics.PowerJaccard(),
 				'a:Specificity': m.Specificity(),
 				'a:Dice': m.Dice(),
@@ -102,6 +112,7 @@ class SingleLSTMAttentionModule(pl.LightningModule):
 		return self.model(ids=ids, mask=mask)
 
 	def configure_optimizers(self):
+		#optimizer = optim.Adam(self.parameters())
 		optimizer = optim.Adadelta(self.parameters())
 		return optimizer
 	
@@ -112,17 +123,13 @@ class SingleLSTMAttentionModule(pl.LightningModule):
 		a_true = batch['a_true']
 		a_true_entropy = batch['a_true_entropy']
 		heuristic = batch['heuristic']
-		y_hat, a_hat = self(
-			ids=batch['token_ids'],
-			mask=padding_mask
-		)
+		y_hat, a_hat = self(ids=batch['token_ids'], mask=padding_mask)
 		loss_classif = self.loss_fn(y_hat, y_true)
 		a_hat_entropy = metrics.entropy(a_hat, padding_mask, normalize=True)
 		loss_entropy = a_hat_entropy.mean()
 		
 		# Sigmoid for IoU loss
-		flat_a_hat = self.flatten_attention(attention=a_hat, condition=y_true > 0, pad_mask=padding_mask, normalize='sigmoid')
-		flat_a_true = self.flatten_attention(attention=a_true, condition=y_true > 0, pad_mask=padding_mask)
+		flat_a_hat, flat_a_true = self.flatten_attention(a_hat=a_hat, a_true=a_true, condition=y_true > 0, pad_mask=padding_mask, normalize='sigmoid')
 		
 		if flat_a_true is None:
 			loss_supervise = torch.tensor(0.).type_as(loss_classif)
@@ -130,7 +137,9 @@ class SingleLSTMAttentionModule(pl.LightningModule):
 			loss_supervise = self.supervise_loss_fn(flat_a_hat, flat_a_true)
 			
 		loss_lagrange = self.lagrange_loss_fn(a_hat_entropy, a_true_entropy)
+		
 		loss_heuristic = self.heuristic_loss_fn(a_hat.log_softmax(dim=1), heuristic)
+		
 		loss = loss_classif + self.lambda_entropy * loss_entropy \
 		       + self.lambda_supervise * loss_supervise \
 		       + self.lambda_lagrange * loss_lagrange \
@@ -148,16 +157,11 @@ class SingleLSTMAttentionModule(pl.LightningModule):
 	
 	def test_step(self, batch, batch_idx, dataloader_idx=None):
 
-		y_hat, a_hat = self(
-			ids=batch['token_ids'],
-			mask=batch['padding_mask']
-		)
-		
-		a_hat = a_hat.detach()
+		y_hat, a_hat = self(ids=batch['token_ids'], mask=batch['padding_mask'])
 		
 		return {'y_hat': y_hat,
 		        'y_true': batch['y_true'],
-		        'a_hat': a_hat,
+		        'a_hat': a_hat.detach(),
 		        'a_true': batch['a_true'],
 		        'padding_mask': batch['padding_mask']}
 	
@@ -180,11 +184,10 @@ class SingleLSTMAttentionModule(pl.LightningModule):
 		y_hat, y_true = outputs['y_hat'], outputs['y_true']
 		padding_mask = outputs['padding_mask']
 		
-		flat_a_hat = self.flatten_attention(attention=a_hat, condition=y_true > 0, pad_mask=padding_mask, normalize='softmax_rescale')
-		flat_a_true = self.flatten_attention(attention=a_true, condition=y_true > 0, pad_mask=padding_mask)
+		flat_a_hat, flat_a_true = self.flatten_attention(a_hat=a_hat, a_true=a_true, condition=y_true > 0, pad_mask=padding_mask, normalize='softmax_rescale')
 		
 		# log attentions metrics
-		if flat_a_hat.size(0) > 0:
+		if flat_a_hat is not None and a_hat.size(0) > 0:
 			metric_a = self.attention_metrics[stage](flat_a_hat, flat_a_true)
 			metric_a['a:entropy'] = self.entropy_metric[stage](a_hat, padding_mask)
 			metric_a = {f'{stage}/{k}': v.item() for k, v in metric_a.items()}  # put metrics within same stage under the same folder
@@ -210,7 +213,7 @@ class SingleLSTMAttentionModule(pl.LightningModule):
 	def test_step_end(self, outputs):
 		return self.step_end(outputs, stage='TEST')
 	
-	def flatten_attention(self, attention, pad_mask, condition=None, normalize: str = ''):
+	def flatten_attention(self, a_hat, a_true, pad_mask, condition=None, normalize:str =''):
 		"""
 		Filter attention
 		Args:
@@ -225,25 +228,30 @@ class SingleLSTMAttentionModule(pl.LightningModule):
 
 		"""
 		if condition is None:
-			condition = torch.ones(attention.size(0)).type(torch.bool)
+			condition = torch.ones(a_hat.size(0)).type(torch.bool)
 		
 		if (~condition).all():
-			return torch.tensor([])
+			return None, None
 		
 		# Filter by condition on y
-		attention = attention[condition]
+		a_hat = a_hat[condition]
+		a_true = a_true[condition]
 		pad_mask = pad_mask[condition]
 		
 		# Ir normalize specify:
 		if normalize == 'sigmoid':
-			attention = torch.sigmoid(attention)
+			a_hat = torch.sigmoid(a_hat)
 		if 'softmax' in normalize:
-			attention = torch.softmax(attention + pad_mask.float() * -INF, dim=1)
+			a_hat = torch.softmax(a_hat + pad_mask.float() * -INF, dim=1)
 		if 'rescale' in normalize:
-			attention = rescale(attention, pad_mask)
-		
+			a_hat = rescale(a_hat, pad_mask)
+			
 		# Filter by mask
-		return attention[~pad_mask]
+		flat_a_hat = a_hat[~pad_mask]
+		flat_a_true = a_true[~pad_mask]
+		
+		return flat_a_hat, flat_a_true
+	
 	
 	def on_train_start(self):   
 		init_hp_metrics = {f'TEST/{k}': 0 for k in self.y_metrics['TEST']}
@@ -279,4 +287,3 @@ class SingleLSTMAttentionModule(pl.LightningModule):
 		
 	def __str__(self):
 		return str(self.model)
-

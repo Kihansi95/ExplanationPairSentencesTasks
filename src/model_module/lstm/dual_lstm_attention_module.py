@@ -129,7 +129,7 @@ class DualLSTMAttentionModule(pl.LightningModule):
 		loss_classif = self.loss_fn(y_hat, y_true)
 		
 		loss_entropy_pair = {s: metrics.entropy(a_hat[s], padding_mask[s], normalize=True, average='micro') for s in a_hat}
-		loss_entropy = 0.5 * sum(loss_entropy_pair.values())
+		loss_entropy = sum(loss_entropy_pair.values()) / len(loss_entropy_pair)
 		
 		# Sigmoid for IoU loss
 		flat_a_hat = [self.flatten_attention(attention=a_hat[s], condition=y_true > 0, pad_mask=padding_mask[s], normalize='sigmoid') for s in a_hat]
@@ -156,18 +156,18 @@ class DualLSTMAttentionModule(pl.LightningModule):
 	
 	def test_step(self, batch, batch_idx, dataloader_idx=None):
 
-		y_true = batch['y_true']
 		padding_mask = batch['padding_mask']
 		y_hat, a_hat = self(
 			premise_ids=batch['premise_ids'],
 			hypothesis_ids=batch['hypothesis_ids'],
 			premise_padding=padding_mask['premise'],
-			hypothesis_padding=padding_mask['hypothesis'])
+			hypothesis_padding=padding_mask['hypothesis']
+		)
 		
 		a_hat = {s: a.detach() for s, a in a_hat.items()}
 		
 		return {'y_hat': y_hat,
-		        'y_true': y_true,
+		        'y_true': batch['y_true'],
 		        'a_hat': a_hat,
 		        'a_true': batch['a_true'],
 		        'padding_mask': padding_mask}
@@ -200,7 +200,8 @@ class DualLSTMAttentionModule(pl.LightningModule):
 		# log attentions metrics
 		if flat_a_hat.size(0) > 0:
 			metric_a = self.attention_metrics[stage](flat_a_hat, flat_a_true)
-			metric_a['a:entropy'] = 0.5 * sum([metrics.entropy(a_hat[s], padding_mask[s], normalize=True, average='micro') for s in a_hat])
+			# metric_a['a:entropy'] = 0.5 * sum([metrics.entropy(a_hat[s], padding_mask[s], normalize=True, average='micro') for s in a_hat])
+			for s in a_hat:	metric_a['a:entropy'] = self.entropy_metric[stage](a_hat[s], padding_mask[s])
 			metric_a = {f'{stage}/{k}': v.item() for k, v in metric_a.items()}  # put metrics within same stage under the same folder
 			self.log_dict(metric_a, prog_bar=True)
 		

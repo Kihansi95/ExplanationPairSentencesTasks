@@ -12,25 +12,24 @@ from tqdm import tqdm
 from os import path
 
 from data.transforms import EntropyTransform
-from data_module.constant import *
 from modules import env
-from modules.const import Normalization
+from modules.const import Normalization, SpecToken
 from modules.logger import log
 
 class HateXPlainDM(pl.LightningDataModule):
 	
 	name='HateXPlain'
 	
-	def __init__(self, cache_path, batch_size=8, num_workers=0, n_data=-1, pur_attention: bool = False):
+	def __init__(self, cache_path, batch_size=8, num_workers=0, n_data=-1, shuffle=True):
 		super().__init__()
 		self.cache_path = cache_path
 		self.batch_size = batch_size
 		# Dataset already tokenized
 		self.n_data = n_data
 		self.num_workers = num_workers
+		self.shuffle = shuffle
 		self.num_class = HateXPlain.NUM_CLASS
 		self.input_type = HateXPlain.INPUT
-		self.pur_attention = pur_attention
 	
 	def prepare_data(self):
 		# called only on 1 GPU
@@ -55,12 +54,10 @@ class HateXPlainDM(pl.LightningDataModule):
 			dp = train_set.batch(self.batch_size).map(self.list2dict).map(flatten_token)
 			
 			# Build vocabulary from iterator. We don't know yet how long does it take
-			iter_tokens = tqdm(iter(dp), desc='Building vocabulary', total=len(dp), unit='sents', file=sys.stdout,
-			                   disable=env.disable_tqdm)
+			iter_tokens = tqdm(iter(dp), desc='Building vocabulary', total=len(dp), unit='sents', file=sys.stdout, disable=env.disable_tqdm)
 			if env.disable_tqdm: log.info(f'Building vocabulary')
-			vocab = build_vocab_from_iterator(iterator=iter_tokens, specials=[PAD_TOK, UNK_TOK])
-			# vocab = build_vocab_from_iterator(iter(doc for doc in train_set['post_tokens']), specials=[PAD_TOK, UNK_TOK])
-			vocab.set_default_index(vocab[UNK_TOK])
+			vocab = build_vocab_from_iterator(iterator=iter_tokens, specials=[SpecToken.PAD, SpecToken.UNK])
+			vocab.set_default_index(vocab[SpecToken.UNK_TOK])
 			
 			# Announce where we save the vocabulary
 			torch.save(vocab, vocab_path, pickle_protocol=pickle.HIGHEST_PROTOCOL)  # Use highest protocol to speed things up
@@ -80,7 +77,7 @@ class HateXPlainDM(pl.LightningDataModule):
 		# predefined processing mapper for setup
 		self.text_transform = T.Sequential(
 			T.VocabTransform(self.vocab),
-			T.ToTensor(padding_value=self.vocab[PAD_TOK])
+			T.ToTensor(padding_value=self.vocab[SpecToken.PAD])
 		)
 		
 		self.rationale_transform = T.Sequential(
@@ -112,7 +109,7 @@ class HateXPlainDM(pl.LightningDataModule):
 			self.test_set = HateXPlain(split='test', **dataset_kwargs)
 	
 	def train_dataloader(self):
-		return DataLoader(self.train_set, batch_size=self.batch_size, shuffle=True, collate_fn=self.collate, num_workers=self.num_workers)
+		return DataLoader(self.train_set, batch_size=self.batch_size, shuffle=self.shuffle, collate_fn=self.collate, num_workers=self.num_workers)
 	
 	def val_dataloader(self):
 		return DataLoader(self.val_set, batch_size=self.batch_size, shuffle=False, collate_fn=self.collate, num_workers=self.num_workers)
@@ -132,25 +129,8 @@ class HateXPlainDM(pl.LightningDataModule):
 			'y_true': self.label_transform(batch['label'])
 		}
 		
-		b['padding_mask'] = b['token_ids'] == self.vocab[PAD_TOK]
+		b['padding_mask'] = b['token_ids'] == self.vocab[SpecToken.PAD]
 		b['a_true_entropy'] = self.entropy_transform(b['a_true'], b['padding_mask'])
-		
-		
-		if self.pur_attention:
-			t = b["token_ids"].shape[0]
-			# some changes for the pur attention model.
-			cls_ids = torch.tensor([self.vocab[CLS_TOK]]).repeat(t, 1)
-			cls_padding = torch.tensor([0.]).repeat(t, 1)  # we contextualise the CLS token
-			att_padding = torch.tensor([0.]).repeat(t, 1)
-			temp = {
-				'token_ids': torch.cat((cls_ids, b['token_ids']), 1),
-				'padding_mask': torch.cat((cls_padding, b['padding_mask']), 1),
-				'a_true': torch.cat((att_padding, b['a_true']), 1),
-				'y_true': b['y_true'],
-				'a_true_entropy': b['a_true_entropy']
-			}
-			b = temp
-		
 		return b
 	
 	def list2dict(self, batch):
@@ -158,3 +138,28 @@ class HateXPlainDM(pl.LightningDataModule):
 		
 		if isinstance(batch, dict): return {k: list(v) for k, v in batch.items()}  # handle case where no batch
 		return {k: [row[k] for row in batch] for k in batch[0]}
+	
+
+class CLSTokenHateXPlainDM(HateXPlainDM):
+	"""
+	Adapation of HateXPlain Datamodule for Pur attention models. This adaptor with concatenate a special token CLS
+	"""
+	
+	def collate(self, batch):
+		
+		b = super(CLSTokenHateXPlainDM, self).collate(batch)
+		
+		# adding CLS token at the beginning
+		cls_ids = torch.tensor([self.vocab[SpecToken.CLS]]).repeat(self.batch_size, 1)
+		cls_pad = torch.tensor([0.]).repeat(self.batch_size, 1)  # we contextualise the CLS token
+		att_pad = torch.tensor([0.]).repeat(self.batch_size, 1)
+		
+		# udpate classic batch with adding
+		b.update({
+			'token_ids': torch.cat((cls_ids, b['token_ids']), 1),
+			'padding_mask': torch.cat((cls_pad, b['padding_mask']), 1),
+			'a_true': torch.cat((att_pad, b['a_true']), 1),
+		})
+		
+		return b
+	

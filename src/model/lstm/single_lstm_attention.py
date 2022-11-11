@@ -82,13 +82,13 @@ class SingleLstmAttention(nn.Module):
 		# L = sequence_length
 		# h = hidden_dim = embedding_size
 		# C = n_class
-		x = input_['ids']
-		mask = input_.get('mask', torch.zeros_like(x))
+		ids = input_['ids']
+		mask = input_.get('mask', torch.zeros_like(ids))
 		
 		# Reproduce hidden representation from LSTM
-		x = self.embedding(x)
+		x = self.embedding(ids)
 		
-		self.lstm.flatten_parameters()  # flatten parameters for data parallel
+		self.lstm.flatten_parameters()          # flatten parameters for data parallel
 		h_seq, (h_last, _) = self.lstm(x) # h_seq.shape???
 		
 		h_last = h_last[-self.d:].permute(1, 0, 2)      # (N, n_direction, d_hidden_lstm)
@@ -122,7 +122,7 @@ if __name__ == '__main__':
 	from torchtext.data import get_tokenizer
 	
 	# === Params ===
-	spacy_model = spacy.load('fr_core_news_md')
+	spacy_model = spacy.load('fr_core_news_sm')
 	method = 'general'
 	h = spacy_model.vocab.vectors.shape[-1]
 	
