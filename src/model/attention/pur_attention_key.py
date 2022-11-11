@@ -112,7 +112,9 @@ class PureAttention(nn.Module):
         mask = input_.get('mask', torch.zeros_like(x))
 
         # non contextual embeddings
+        hidden_states = []
         x = self.embedding(x)  # shape of (N, L, h)
+        hidden_states.append(x)
 
         # the positional encoding
         x = self.pe(x)
@@ -129,7 +131,7 @@ class PureAttention(nn.Module):
                                    value=x,
                                    key_padding_mask=mask
                                    )
-
+            hidden_states.append(x)
             attention_weights.append(attn_weights)  # we add the different attention weights while we progress.
             key_embeddings.append(k)
 
@@ -141,6 +143,7 @@ class PureAttention(nn.Module):
 
         return {
             "last_hidden_states": x,
+            "hidden_states": hidden_states,
             "attn_weights": attention_weights,
             "cls_tokens": cls_tokens,
             "key_embeddings": key_embeddings,
