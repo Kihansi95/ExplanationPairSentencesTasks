@@ -145,6 +145,9 @@ class CLSTokenHateXPlainDM(HateXPlainDM):
 	Adapation of HateXPlain Datamodule for Pur attention models. This adaptor with concatenate a special token CLS
 	"""
 	
+	def __init__(self, **kwargs):
+		super(CLSTokenHateXPlainDM, self).__init__(**kwargs)
+	
 	def collate(self, batch):
 		
 		b = super(CLSTokenHateXPlainDM, self).collate(batch)
