@@ -42,7 +42,7 @@ class AttitModel(pl.LightningModule):
 
         # log hyperparameters into hparams.yaml
         self.save_hyperparameters('data', 'num_layers', 'num_heads', 'lambda_entropy', 'lambda_supervise',
-                                  'lambda_lagrange')
+                                  'lambda_lagrange', 'lambda_key_space')
         self.data = data
 
         if pretrained_vectors is not None and isinstance(pretrained_vectors, str):
@@ -206,12 +206,7 @@ class AttitModel(pl.LightningModule):
         output_model = self(ids=batch['token_ids'], mask=padding_mask)
 
         attention_tensor = torch.stack(output_model['attn_weights'], dim=1)  # [N, num_layers, L, L]
-        agreg_mask = ((~padding_mask).float()).clone().detach().to(self.device) \
-            .unsqueeze(1).unsqueeze(1) \
-            .repeat(1, self.num_layers, batch['token_ids'].shape[1], 1)
-        pad_mask = torch.transpose(agreg_mask, dim0=2, dim1=3)
-        attention_tensor = torch.mul(attention_tensor, pad_mask)
-        a_hat = attention_tensor.sum(dim=1).sum(dim=1)
+        a_hat = attention_tensor[:, 0, 0, :]
 
         return {'y_hat': y_hat,
                 'y_true': batch['y_true'],

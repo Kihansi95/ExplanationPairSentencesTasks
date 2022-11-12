@@ -102,7 +102,7 @@ if __name__ == '__main__':
 			
 			# Save to summary
 			## Cache dataframe
-			os.makedirs(out_path, exist_ok=True)
+			os.makedirs(out_path)
 			df.to_parquet(parquet_path)
 		
 		else:
