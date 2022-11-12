@@ -131,8 +131,8 @@ class PureAttention(nn.Module):
                                       key_padding_mask=mask
                                       )
             # connection with the previous layer
-            x = context + x
-            x = torch.nn.functional.normalize(x, 2)
+            x = context + x # x of shape [N, T(s), d] ==> we thus normalize the last dimension
+            x = torch.nn.functional.normalize(x, p=2, dim=-1, eps=1e-16)
 
             # update the different states
             hidden_states.append(x)
