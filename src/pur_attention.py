@@ -499,7 +499,6 @@ if __name__ == '__main__':
         detect_anomaly=args.detect_anomaly,  # deactivate on large scale experiemnt
         benchmark=False,  # benchmark = False better time in NLP
     )
-
     # Set up output path
     ckpt_path = path.join(logger.log_dir, 'checkpoints', 'best.ckpt')
     hparams_path = path.join(logger.log_dir, 'hparams.yaml')

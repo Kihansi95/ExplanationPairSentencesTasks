@@ -125,8 +125,7 @@ class YelpHatDM(pl.LightningDataModule):
 		return DataLoader(self.val_set, batch_size=self.batch_size, shuffle=False, collate_fn=self.collate, num_workers=self.num_workers)
 	
 	def test_dataloader(self):
-		loader_kwargs = dict(batch_size=self.batch_size, shuffle=False, collate_fn=self.collate,
-		                     num_workers=self.num_workers)
+		loader_kwargs = dict(batch_size=self.batch_size, shuffle=False, collate_fn=self.collate, num_workers=self.num_workers)
 		# loaders = {dataset_name : DataLoader(dataset, **loader_kwargs) for dataset_name, dataset in self.test_sets.items()}
 		loaders = [DataLoader(dataset, **loader_kwargs) for dataset_name, dataset in self.test_sets.items()]
 		# return CombinedLoader(loaders, mode="max_size_cycle") # Run multiple test set in parallel
@@ -149,7 +148,6 @@ class YelpHatDM(pl.LightningDataModule):
 		
 		b['padding_mask'] = b['token_ids'] == self.vocab[SpecToken.PAD]
 		b['a_true_entropy'] = self.entropy_transform(b['a_true'], b['padding_mask'])
-		
 		return b
 	
 	def list2dict(self, batch):
@@ -210,13 +208,17 @@ class YelpHat200DM(YelpHat50DM):
 			
 class CLSTokenYelpHatDM(YelpHatDM):
 	
+	def __init__(self, **kwargs):
+		super(CLSTokenYelpHatDM, self).__init__(**kwargs)
+	
 	def collate(self, batch):
 		b = super(CLSTokenYelpHatDM, self).collate(batch)
 		
 		# adding CLS token at the beginning
-		cls_ids = torch.tensor([self.vocab[SpecToken.CLS]]).repeat(self.batch_size, 1)
-		cls_pad = torch.tensor([0.]).repeat(self.batch_size, 1)  # we contextualise the CLS token
-		att_pad = torch.tensor([0.]).repeat(self.batch_size, 1)
+		bsz = b['token_ids'].size(0) # == batch_size or len(data) if len(data) < batch_size
+		cls_ids = torch.tensor([self.vocab[SpecToken.CLS]]).repeat(bsz, 1)
+		cls_pad = torch.tensor([0.]).repeat(bsz, 1)  # we contextualise the CLS token
+		att_pad = torch.tensor([0.]).repeat(bsz, 1)
 		
 		# udpate classic batch with adding
 		b.update({
@@ -224,11 +226,10 @@ class CLSTokenYelpHatDM(YelpHatDM):
 			'padding_mask': torch.cat((cls_pad, b['padding_mask']), 1),
 			'a_true': torch.cat((att_pad, b['a_true']), 1),
 		})
-		log.debug(f'tokens_ids={b["token_ids"]}')
-		log.debug(f'CLS={self.vocab[SpecToken.CLS]}')
 		return b
 	
 class CLSTokenYelpHat50DM(CLSTokenYelpHatDM):
+	
 	def __init__(self, **kwargs):
 		super(CLSTokenYelpHat50DM, self).__init__(**kwargs)
 	
@@ -257,7 +258,7 @@ class CLSTokenYelpHat100DM(CLSTokenYelpHat50DM):
 		
 		if stage == 'fit' or stage is None:
 			super(CLSTokenYelpHat100DM, self).setup(stage)
-		
+
 		if (stage == 'test' or stage is None) and not hasattr(self, 'test_set'):
 			self.test_set = SpacyPretokenizeYelpHat(split='yelp100', root=self.cache_path, n_data=self.n_data)
 

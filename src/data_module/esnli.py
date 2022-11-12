@@ -198,6 +198,9 @@ class ESNLIDM(pl.LightningDataModule):
 
 class CLSTokenESNLIDM(ESNLIDM):
 
+	def __init__(self, **kwargs):
+		super(CLSTokenESNLIDM, self).__init__(**kwargs)
+
 	def collate(self, batch):
 		
 		b = super(CLSTokenESNLIDM, self).collate(batch)
@@ -213,14 +216,13 @@ class CLSTokenESNLIDM(ESNLIDM):
 		den = torch.log(
 			(~b['padding_mask']['premise']).sum(dim=-1) + (~b['padding_mask']['hypothesis']).sum(dim=-1)
 		)
-		a_true_entropy = num / den
-		temp = {
+		
+		b.update({
 			'token_ids': torch.cat((cls_ids, b['premise_ids'], b['hypothesis_ids']), 1),
-			'padding_mask': torch.cat((cls_padding, b['padding_mask']['premise'], b['padding_mask']['hypothesis']),
-			                          1),
+			'padding_mask': torch.cat((cls_padding, b['padding_mask']['premise'], b['padding_mask']['hypothesis']), 1),
 			'a_true': torch.cat((att_padding, b['a_true']['premise'], b['a_true']['hypothesis']), 1),
-			'y_true': b['y_true'],
-			'a_true_entropy': a_true_entropy
-		}
-		b = temp
+			'a_true_entropy': num / den
+		})
+		
+		return b
 

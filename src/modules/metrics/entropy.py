@@ -30,13 +30,9 @@ class Entropy(Metric):
 		if self.normalize is None:
 			self.normalize = torch.any(torch.sum(preds, axis=1) != 1)
 		
-		log.debug(f'Update average {self.average}')
-		
 		batch_entropy = entropy(preds, mask, self.normalize, self.average)
 		if self.average == None:
-			log.debug(f'delta(cumulate_entropy)={batch_entropy.sum()}')
 			self.cumulate_entropy += batch_entropy.sum()
-			log.debug(f'delta(n_sample)={preds.size(0)}')
 			self.n_sample += preds.size(0)
 			
 		elif self.average == _SUM:
@@ -46,12 +42,8 @@ class Entropy(Metric):
 		elif self.average == AverageMethod.MICRO:
 			self.cumulate_entropy += batch_entropy
 			self.n_sample += 1
-		
-		log.debug(f'udpate: cumulate_entropy={self.cumulate_entropy}, n_sample={self.n_sample}')
 	
 	def compute(self):
-		log.debug(f'cumulate_entropy={self.cumulate_entropy}')
-		log.debug(f'n_sample={self.n_sample}')
 		return self.cumulate_entropy.float() / (self.n_sample + (self.n_sample == 0))
 	
 EPS = 1e-10
