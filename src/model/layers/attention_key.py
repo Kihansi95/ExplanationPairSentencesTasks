@@ -13,13 +13,13 @@ class Attention(nn.MultiheadAttention):
 
     def forward(self, query: Tensor, key: Tensor, value: Tensor, key_padding_mask: Optional[Tensor] = None,
                 need_weights: bool = True, attn_mask: Optional[Tensor] = None) \
-            -> Tuple[Tensor, Optional[Tensor], Optional[Tensor]]:
+            -> Tuple[Tensor, Optional[Tensor], Optional[Tensor], Optional[Tensor], Optional[Tensor]]:
         is_batched = query.dim() == 3
         if self.batch_first and is_batched:
             query, key, value = [x.transpose(1, 0) for x in (query, key, value)]
 
         if not self._qkv_same_embed_dim:
-            attn_output, attn_output_weights, k = multi_head_attention_forward(
+            attn_output, attn_output_weights, k, q, v = multi_head_attention_forward(
                 query, key, value, self.embed_dim, self.num_heads,
                 self.in_proj_weight, self.in_proj_bias,
                 self.bias_k, self.bias_v, self.add_zero_attn,
@@ -31,7 +31,7 @@ class Attention(nn.MultiheadAttention):
                 q_proj_weight=self.q_proj_weight, k_proj_weight=self.k_proj_weight,
                 v_proj_weight=self.v_proj_weight)
         else:
-            attn_output, attn_output_weights, k = multi_head_attention_forward(
+            attn_output, attn_output_weights, k, q, v = multi_head_attention_forward(
                 query, key, value, self.embed_dim, self.num_heads,
                 self.in_proj_weight, self.in_proj_bias,
                 self.bias_k, self.bias_v, self.add_zero_attn,
@@ -72,7 +72,7 @@ def multi_head_attention_forward(
         v_proj_weight: Optional[Tensor] = None,
         static_k: Optional[Tensor] = None,
         static_v: Optional[Tensor] = None,
-) -> Tuple[Tensor, Optional[Tensor], Optional[Tensor]]:
+) -> Tuple[Tensor, Optional[Tensor], Optional[Tensor], Optional[Tensor], Optional[Tensor]]:
     tgt_len, bsz, embed_dim = query.size()
     assert embed_dim == embed_dim_to_check
     # allow MHA to have different sizes for the feature dimension
@@ -276,7 +276,7 @@ def multi_head_attention_forward(
         attn_output_weights = attn_output_weights.view(bsz, num_heads, tgt_len, src_len)
         attn = attn_output_weights.sum(dim=1) / num_heads
 
-        return attn_output, attn, k
+        return attn_output, attn, k, q, v
     # return attn_output, attn_output_weights.sum(dim=1) / num_heads
     else:
-        return attn_output, None, k
+        return attn_output, None, k, q, v

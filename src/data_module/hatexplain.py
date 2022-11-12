@@ -160,6 +160,5 @@ class CLSTokenHateXPlainDM(HateXPlainDM):
 			'padding_mask': torch.cat((cls_pad, b['padding_mask']), 1),
 			'a_true': torch.cat((att_pad, b['a_true']), 1),
 		})
-		
 		return b
 	

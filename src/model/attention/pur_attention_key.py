@@ -1,33 +1,8 @@
-from collections import OrderedDict
-
 import torch
+from model.attention.positional_encoding import PositionalEncoding
 from torch import nn
-import math
-from torch.nn import MultiheadAttention
 from model.layers.attention_key import Attention
-from model.layers.fully_connected import FullyConnected
 from modules.logger import log
-
-
-# huggin face class for the positional encoding
-class PositionalEncoding(nn.Module):
-
-    def __init__(self, d_model, dropout=0, max_len=5000):
-        super(PositionalEncoding, self).__init__()
-        self.dropout = nn.Dropout(p=dropout)
-
-        self.pe = torch.zeros(max_len, d_model, requires_grad=False)  # we don't train the pe tensor.
-        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
-        self.pe[:, 0::2] = torch.sin(position * div_term)
-        self.pe[:, 1::2] = torch.cos(position * div_term)
-        self.pe = self.pe.unsqueeze(0).transpose(0, 1)
-
-    def forward(self, x):
-        temp = self.pe.repeat(x.size(0), 1, 1).clone().detach().to(x.device)
-        x = x + temp[x.size(1), :]
-        return self.dropout(x)
-
 
 class PureAttention(nn.Module):
 
@@ -121,19 +96,26 @@ class PureAttention(nn.Module):
 
         attention_weights = []  # each element of the list is of size (N, H, L, L)
         key_embeddings = []
+        request_embeddings = []
+        value_embeddings = []
 
         for i, l in enumerate(self.attention_layers):
             # Compute attention : contextualization of the embeddings
             # compute the attention on the embeddings
             # /!\ the attention weights are already averaged on the number of heads.
-            x, attn_weights, k = l(query=x,
-                                   key=x,
-                                   value=x,
-                                   key_padding_mask=mask
-                                   )
+            x, attn_weights, k, q, v = l(query=x,
+                                         key=x,
+                                         value=x,
+                                         key_padding_mask=mask
+                                         )
+            # TODO : do we have a better accuracy with the connection we added
+            # Then do we need to put the connections in this model.
             hidden_states.append(x)
-            attention_weights.append(attn_weights)  # we add the different attention weights while we progress.
+            attention_weights.append(attn_weights)
+            # update the embeddings on the different spaces
             key_embeddings.append(k)
+            request_embeddings.append(q)
+            value_embeddings.append(v)
 
         # cls token of the last hidden state
         cls_tokens = x[:, 0, :]
@@ -147,6 +129,8 @@ class PureAttention(nn.Module):
             "attn_weights": attention_weights,
             "cls_tokens": cls_tokens,
             "key_embeddings": key_embeddings,
+            "request_embeddings": request_embeddings,
+            "value_embeddings": value_embeddings,
             "logits": logits
         }
 

@@ -22,15 +22,18 @@ class PositionalEncoding(nn.Module):
         pe = torch.zeros(max_len, 1, d_model)
         pe[:, 0, 0::2] = torch.sin(position * div_term)
         pe[:, 0, 1::2] = torch.cos(position * div_term)
-        self.register_buffer('pe', pe)
+        #self.register_buffer('pe', pe)
 
     def forward(self, x: Tensor) -> Tensor:
         """
         Args:
             x: Tensor, shape [batch_size, seq_len, embedding_dim]
         """
+        # in our input the batch is at the first position
         x = torch.transpose(x, dim0=0, dim1=1)
+        # add the positional encoding
         x = x + self.pe[:x.size(0)]
+        # put the dimension back in the right place
         x = torch.transpose(x, dim0=0, dim1=1)
 
         return self.dropout(x)
