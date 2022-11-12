@@ -57,7 +57,7 @@ class HateXPlainDM(pl.LightningDataModule):
 			iter_tokens = tqdm(iter(dp), desc='Building vocabulary', total=len(dp), unit='sents', file=sys.stdout, disable=env.disable_tqdm)
 			if env.disable_tqdm: log.info(f'Building vocabulary')
 			vocab = build_vocab_from_iterator(iterator=iter_tokens, specials=[SpecToken.PAD, SpecToken.UNK])
-			vocab.set_default_index(vocab[SpecToken.UNK_TOK])
+			vocab.set_default_index(vocab[SpecToken.UNK])
 			
 			# Announce where we save the vocabulary
 			torch.save(vocab, vocab_path, pickle_protocol=pickle.HIGHEST_PROTOCOL)  # Use highest protocol to speed things up
@@ -151,11 +151,11 @@ class CLSTokenHateXPlainDM(HateXPlainDM):
 	def collate(self, batch):
 		
 		b = super(CLSTokenHateXPlainDM, self).collate(batch)
-		
+		bs = b["token_ids"].shape[0]
 		# adding CLS token at the beginning
-		cls_ids = torch.tensor([self.vocab[SpecToken.CLS]]).repeat(self.batch_size, 1)
-		cls_pad = torch.tensor([0.]).repeat(self.batch_size, 1)  # we contextualise the CLS token
-		att_pad = torch.tensor([0.]).repeat(self.batch_size, 1)
+		cls_ids = torch.tensor([self.vocab[SpecToken.CLS]]).repeat(bs, 1)
+		cls_pad = torch.tensor([0.]).repeat(bs, 1)  # we contextualise the CLS token
+		att_pad = torch.tensor([0.]).repeat(bs, 1)
 		
 		# udpate classic batch with adding
 		b.update({
