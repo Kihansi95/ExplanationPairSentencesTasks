@@ -112,10 +112,10 @@ class AttitModel(pl.LightningModule):
 
     def configure_optimizers(self):
         if self.opt == "adam":
-            # adam optimizer
+            log.debug("use of the optimizer adam")
             optimizer = optim.Adam(self.parameters())
         else:
-            # adadelta : adaptative learning
+            log.debug("use of the optimizer adadelta")
             optimizer = optim.Adadelta(self.parameters())
         return optimizer
 
