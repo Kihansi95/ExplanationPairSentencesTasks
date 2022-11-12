@@ -4,6 +4,7 @@ from torch import nn
 from model.layers.attention_key import Attention
 from modules.logger import log
 
+
 class PureAttention(nn.Module):
 
     def __init__(self, d_embedding: int,
@@ -94,7 +95,7 @@ class PureAttention(nn.Module):
         # the positional encoding
         x = self.pe(x)
 
-        attention_weights = []  # each element of the list is of size (N, H, L, L)
+        attention_weights = []
         key_embeddings = []
         request_embeddings = []
         value_embeddings = []
@@ -110,6 +111,7 @@ class PureAttention(nn.Module):
                                          )
             # TODO : do we have a better accuracy with the connection we added
             # Then do we need to put the connections in this model.
+
             hidden_states.append(x)
             attention_weights.append(attn_weights)
             # update the embeddings on the different spaces
@@ -117,10 +119,7 @@ class PureAttention(nn.Module):
             request_embeddings.append(q)
             value_embeddings.append(v)
 
-        # cls token of the last hidden state
         cls_tokens = x[:, 0, :]
-        # log.debug(f"cls_tok : {cls_tokens}")
-
         logits = self.classifier(cls_tokens)
 
         return {
@@ -133,79 +132,3 @@ class PureAttention(nn.Module):
             "value_embeddings": value_embeddings,
             "logits": logits
         }
-
-
-if __name__ == '__main__':
-
-    import spacy
-    from torch import optim
-    from torch.nn.utils.rnn import pad_sequence
-    from torchtext.vocab import Vocab
-    from torchtext.data import get_tokenizer
-
-    # === Params ===
-    spacy_model = spacy.load('fr_core_news_md')
-    method = 'general'
-    h = spacy_model.vocab.vectors.shape[-1]
-
-    # === Examples ===
-    doc1 = [
-        'Bonjour tonton',
-        'Comment allez-vous?',
-        'Nik a les cheveux courts.'
-    ]
-    doc2 = [
-        'On l’utilise principalement entre copains, entre écoliers, entre jeunes…',
-        'Ce repas/plat était très bon!',
-        'Tina a les cheveux bouclés.'
-    ]
-    y = [0, 1, 2]
-
-    # Tokenize
-    # ==============
-    # tokenizer = Tokenizer(spacy_model=spacy_model, mode=2)
-    tokenizer = get_tokenizer('spacy', language="fr")  # spacy tokenizer, provided by torchtext
-    counter = tokenizer.count_tokens(doc1 + doc2)
-
-    vocab = Vocab(counter, specials=['<unk>', '<pad>', '<msk>'])
-    tokenizer.vocab = vocab
-    # === Test ===
-
-    # tokenize
-    x1 = [tokenizer.numericalize(d) for d in doc1]
-    x2 = [tokenizer.numericalize(d) for d in doc2]
-
-    # convert to tensor
-    x1 = [torch.tensor(x, dtype=torch.long) for x in x1]
-    x2 = [torch.tensor(x, dtype=torch.long) for x in x2]
-
-    x1 = pad_sequence(x1, batch_first=True)
-    x2 = pad_sequence(x2, batch_first=True)
-
-    y = torch.tensor(y, dtype=torch.long)
-
-    model = PureAttention(d_in=300, dropout=0, num_heads=1, num_layers=1)
-
-    model.train()
-
-    loss_fn = nn.CrossEntropyLoss()
-    optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
-
-    for epoch in range(1):
-        # reset optimizer
-        optimizer.zero_grad()
-
-        preds, _ = model([x1, x2])
-        loss = loss_fn(preds, y)
-
-        loss.backward()
-        optimizer.step()
-
-        running_loss = loss.item()
-        print("[{:0>3d}] loss: {:.3f}".format(epoch + 1, running_loss))
-
-    model.eval()
-    predict, _ = model([x1, x2])
-    predict = predict.detach()
-    print('Prediction:')
-    print(predict)
