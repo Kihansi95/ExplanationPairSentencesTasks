@@ -91,7 +91,7 @@ class PureAttention(nn.Module):
         hidden_states = []
         x = self.embedding(x)  # shape of (N, L, h)
 
-        hidden_states.append(x) # first hidden states is the embeddings
+        hidden_states.append(x)  # first hidden states is the embeddings
         # the positional encoding
         x = self.pe(x)
 
@@ -113,7 +113,7 @@ class PureAttention(nn.Module):
             # NORM
             m = torch.mean(x, dim=-1).unsqueeze(dim=-1).repeat(1, 1, x.shape[-1])
             v = torch.var(x, dim=-1).unsqueeze(dim=-1).repeat(1, 1, x.shape[-1])
-            x = (x-m)/torch.sqrt(v)
+            x = (x - m) / torch.sqrt(v)
 
             # update the different states
             hidden_states.append(x)
