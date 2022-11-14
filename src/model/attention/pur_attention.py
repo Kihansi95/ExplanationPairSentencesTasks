@@ -2,31 +2,9 @@ from collections import OrderedDict
 
 import torch
 from torch import nn
-import math
-from torch.nn import MultiheadAttention
 from model.layers.attention import Attention
-from model.layers.fully_connected import FullyConnected
+from model.attention.positional_encoding import PositionalEncoding
 from modules.logger import log
-
-
-# huggin face class for the positional encoding
-class PositionalEncoding(nn.Module):
-
-    def __init__(self, d_model, dropout=0.0, max_len=5000):
-        super(PositionalEncoding, self).__init__()
-        self.dropout = nn.Dropout(p=dropout)
-
-        self.pe = torch.zeros(max_len, d_model, requires_grad=False)  # we don't train the pe tensor.
-        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
-        self.pe[:, 0::2] = torch.sin(position * div_term)
-        self.pe[:, 1::2] = torch.cos(position * div_term)
-        self.pe = self.pe.unsqueeze(0).transpose(0, 1)
-
-    def forward(self, x):
-        temp = self.pe.repeat(x.size(0), 1, 1).clone().detach().to(x.device)
-        x = x + temp[x.size(1), :]
-        return self.dropout(x)
 
 
 class PureAttention(nn.Module):
@@ -73,7 +51,7 @@ class PureAttention(nn.Module):
 
         # add a positional encoding layer
         self.pe = PositionalEncoding(d_model=d_embedding,
-                                     dropout=0,
+                                     dropout=.0,
                                      max_len=10000)
 
         # attention layers store attention layers in module list : keep the gradient in the graph.
@@ -112,7 +90,8 @@ class PureAttention(nn.Module):
         # non contextual embeddings
         hidden_states = []
         x = self.embedding(x)  # shape of (N, L, h)
-        hidden_states.append(x) # first hidden states is the embeddings
+
+        hidden_states.append(x)  # first hidden states is the embeddings
         # the positional encoding
         x = self.pe(x)
 
@@ -120,19 +99,21 @@ class PureAttention(nn.Module):
         hidden_states = []
 
         for i, l in enumerate(self.attention_layers):
-            # Compute attention : contextualization of the embeddings
-            # compute the attention on the embeddings
-            # /!\ the attention weights are already averaged on the number of heads.
-            # TODO : add connections to help the gradient.
-
             context, attn_weights = l(query=x,
                                       key=x,
                                       value=x,
                                       key_padding_mask=mask
                                       )
-            # connection with the previous layer
-            x = context + x # x of shape [N, T(s), d] ==> we thus normalize the last dimension
-            x = torch.nn.functional.normalize(x, p=2, dim=-1, eps=1e-16)
+
+            # ADD AND NORM PROCEDURE : VASWANI ET AL, 2017
+
+            # ADD
+            x = context + x
+
+            # NORM
+            m = torch.mean(x, dim=-1).unsqueeze(dim=-1).repeat(1, 1, x.shape[-1])
+            v = torch.var(x, dim=-1).unsqueeze(dim=-1).repeat(1, 1, x.shape[-1])
+            x = (x - m) / torch.sqrt(v)
 
             # update the different states
             hidden_states.append(x)

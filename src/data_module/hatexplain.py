@@ -57,7 +57,7 @@ class HateXPlainDM(pl.LightningDataModule):
 			iter_tokens = tqdm(iter(dp), desc='Building vocabulary', total=len(dp), unit='sents', file=sys.stdout, disable=env.disable_tqdm)
 			if env.disable_tqdm: log.info(f'Building vocabulary')
 			vocab = build_vocab_from_iterator(iterator=iter_tokens, specials=[SpecToken.PAD, SpecToken.UNK])
-			vocab.set_default_index(vocab[SpecToken.UNK_TOK])
+			vocab.set_default_index(vocab[SpecToken.UNK])
 			
 			# Announce where we save the vocabulary
 			torch.save(vocab, vocab_path, pickle_protocol=pickle.HIGHEST_PROTOCOL)  # Use highest protocol to speed things up
@@ -164,6 +164,5 @@ class CLSTokenHateXPlainDM(HateXPlainDM):
 			'padding_mask': torch.cat((cls_pad, b['padding_mask']), 1),
 			'a_true': torch.cat((att_pad, b['a_true']), 1),
 		})
-		
 		return b
 	

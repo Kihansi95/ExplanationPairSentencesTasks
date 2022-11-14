@@ -37,6 +37,7 @@ class AttitModel(pl.LightningModule):
                  num_layers=1,
                  num_heads=1,
                  opt="adam",
+                 freeze: bool = False,
                  **kwargs):
         super(AttitModel, self).__init__()
 
@@ -59,7 +60,7 @@ class AttitModel(pl.LightningModule):
                                    attention_raw=True,
                                    n_class=num_class,
                                    d_embedding=kwargs['d_embedding'],
-                                   freeze=False)
+                                   freeze=freeze)
 
         # model parameters
         self.num_heads = num_heads
@@ -205,7 +206,7 @@ class AttitModel(pl.LightningModule):
         y_hat = output_model["logits"]
         output_model = self(ids=batch['token_ids'], mask=padding_mask)
 
-        attention_tensor = torch.stack(output_model['attn_weights'], dim=1)  # [N, num_layers, L, L]
+        attention_tensor = torch.stack(output_model['attn_weights'], dim=1)  # [N, num_layers=1, L, L]
         a_hat = attention_tensor[:, 0, 0, :]
 
         return {'y_hat': y_hat,
@@ -392,6 +393,7 @@ def parse_argument(prog: str = __name__, description: str = 'Experimentation on 
                         help='Embedding dimension, will be needed if vector is not precised')
     parser.add_argument('--num_layers', type=int, default=1, help='number of layers in the model')
     parser.add_argument('--num_heads', type=int, default=1, help='number of heads on each layer')
+    parser.add_argument('--freeze', action="store_true")  # parser to freeze the embeddings
 
     # Data configuration
     parser.add_argument('--n_data', '-n', type=int, default=-1,
@@ -480,7 +482,8 @@ if __name__ == '__main__':
         d_embedding=args.d_embedding,
         data=args.data,
         num_class=dm.num_class,
-        opt=args.opt
+        opt=args.opt,
+        freeze=args.freeze
     )
 
     # call back
