@@ -15,7 +15,7 @@ import torchmetrics as m
 
 from data_module.constant import *
 
-from model.lstm.dual_lstm_attention import DualPairLstmAttention
+from model.lstm.dual_lstm_attention import DualLstmAttention
 from modules.const import Mode
 from modules.logger import log
 from modules import metrics, rescale, INF
@@ -46,13 +46,13 @@ class DualLSTMAttentionModule(pl.LightningModule):
 			pretrained_vectors = [vectors[token] for token in vocab.get_itos()]
 			pretrained_vectors = torch.stack(pretrained_vectors)
 
-		self.model = DualPairLstmAttention(pretrained_embedding=pretrained_vectors,
-		                                   vocab_size=len(vocab),
-		                                   d_embedding=kwargs['d_embedding'],
-		                                   padding_idx=vocab[PAD_TOK],
-		                                   n_class=num_class,
-		                                   n_lstm=n_lstm,
-		                                   attention_raw=True)
+		self.model = DualLstmAttention(pretrained_embedding=pretrained_vectors,
+		                               vocab_size=len(vocab),
+		                               d_embedding=kwargs['d_embedding'],
+		                               padding_idx=vocab[PAD_TOK],
+		                               n_class=num_class,
+		                               n_lstm=n_lstm,
+		                               attention_raw=True)
 		
 		self.loss_fn = nn.CrossEntropyLoss()
 		self.supervise_loss_fn = IoU()

@@ -10,7 +10,7 @@ from torchtext.vocab.vectors import pretrained_aliases as pretrained
 import torchmetrics as m
 
 from data_module.yelp_hat import *
-from model.uncontext.single_ekey_lquery_attention import SingleEkeyLquery
+from model.uncontext import DualEkeyLquery
 from modules.const import Mode
 
 from modules.logger import log
@@ -19,7 +19,7 @@ from modules import metrics, rescale, INF
 from modules.loss import IoU, KLDivLoss
 
 
-class SingleEkeyLqueryModule(pl.LightningModule):
+class DualEkeyLqueryModule(pl.LightningModule):
 	
 	def __init__(self, cache_path, mode, vocab, pretrained_vectors: Union[str, torch.tensor]=None,
 	             lambda_entropy:float = 0.,
@@ -31,7 +31,7 @@ class SingleEkeyLqueryModule(pl.LightningModule):
 	             n_context=1,
 	             concat_context:bool=True,
 	             **kwargs):
-		super(SingleEkeyLqueryModule, self).__init__()
+		super(DualEkeyLqueryModule, self).__init__()
 		
 		# log hyperparameters into hparams.yaml
 		self.save_hyperparameters(
@@ -51,7 +51,7 @@ class SingleEkeyLqueryModule(pl.LightningModule):
 			pretrained_vectors = [vectors[token] for token in vocab.get_itos()]
 			pretrained_vectors = torch.stack(pretrained_vectors)
 
-		self.model = SingleEkeyLquery(pretrained_embedding=pretrained_vectors,
+		self.model = DualEkeyLquery(pretrained_embedding=pretrained_vectors,
 		                                 vocab_size=len(vocab),
 		                                 d_embedding=kwargs['d_embedding'],
 		                                 padding_idx=vocab[SpecToken.PAD],
@@ -107,9 +107,14 @@ class SingleEkeyLqueryModule(pl.LightningModule):
 		self.reg_term_metric = nn.ModuleDict({
 			phase: m.MeanMetric() for phase in PHASES
 		})
-		
-	def forward(self, ids, mask):
-		return self.model(ids=ids, mask=mask)
+	
+	def forward(self, premise_ids, hypothesis_ids, premise_padding, hypothesis_padding):
+		return self.model(
+			premise_ids=premise_ids,
+			hypothesis_ids=hypothesis_ids,
+			premise_padding=premise_padding,
+			hypothesis_padding=hypothesis_padding
+		)
 
 	def configure_optimizers(self):
 		#optimizer = optim.Adam(self.parameters())
@@ -121,49 +126,61 @@ class SingleEkeyLqueryModule(pl.LightningModule):
 		y_true = batch['y_true']
 		padding_mask = batch['padding_mask']
 		a_true = batch['a_true']
-		a_true_entropy = batch['a_true_entropy']
-		heuristic = batch['heuristic']
-		y_hat, a_hat = self(ids=batch['token_ids'], mask=padding_mask)
+		y_hat, a_hat = self(
+			premise_ids=batch['premise_ids'],
+			hypothesis_ids=batch['hypothesis_ids'],
+			premise_padding=padding_mask['premise'],
+			hypothesis_padding=padding_mask['hypothesis']
+		)
+		
 		loss_classif = self.loss_fn(y_hat, y_true)
-		a_hat_entropy = metrics.entropy(a_hat, padding_mask, normalize=True)
-		loss_entropy = a_hat_entropy.mean()
+		
+		loss_entropy_pair = {s: metrics.entropy(a_hat[s], padding_mask[s], normalize=True, average='micro') for s in
+		                     a_hat}
+		loss_entropy = sum(loss_entropy_pair.values()) / len(loss_entropy_pair)
 		
 		# Sigmoid for IoU loss
-		flat_a_hat, flat_a_true = self.flatten_attention(a_hat=a_hat, a_true=a_true, condition=y_true > 0, pad_mask=padding_mask, normalize='sigmoid')
+		flat_a_hat = [self.flatten_attention(attention=a_hat[s], condition=y_true > 0, pad_mask=padding_mask[s],
+		                                     normalize='sigmoid') for s in a_hat]
+		flat_a_true = [self.flatten_attention(attention=a_true[s], condition=y_true > 0, pad_mask=padding_mask[s]) for s
+		               in a_true]
+		
+		flat_a_hat = torch.cat(flat_a_hat)
+		flat_a_true = torch.cat(flat_a_true)
 		
 		if flat_a_true is None:
 			loss_supervise = torch.tensor(0.).type_as(loss_classif)
 		else:
 			loss_supervise = self.supervise_loss_fn(flat_a_hat, flat_a_true)
-			
-		loss_lagrange = self.lagrange_loss_fn(a_hat_entropy, a_true_entropy)
-		
-		loss_heuristic = self.heuristic_loss_fn(a_hat.log_softmax(dim=1), heuristic)
 		
 		loss = loss_classif + self.lambda_entropy * loss_entropy \
-		       + self.lambda_supervise * loss_supervise \
-		       + self.lambda_lagrange * loss_lagrange \
-		       + self.lambda_heuristic * loss_heuristic
-		
+		       + self.lambda_supervise * loss_supervise
+	
 		return {'loss': loss,
 		        'loss_entropy': loss_entropy,
 		        'loss_supervise': loss_supervise,
-		        'loss_lagrange': loss_lagrange,
-		        'loss_heuristic': loss_heuristic,
 		        'y_hat': y_hat, 'y_true': y_true, 'a_hat': a_hat, 'a_true': a_true, 'padding_mask': padding_mask}
 	
 	def validation_step(self, batch, batch_idx):
 		return self.training_step(batch, batch_idx, True)
 	
 	def test_step(self, batch, batch_idx, dataloader_idx=None):
-
-		y_hat, a_hat = self(ids=batch['token_ids'], mask=batch['padding_mask'])
+		
+		padding_mask = batch['padding_mask']
+		y_hat, a_hat = self(
+			premise_ids=batch['premise_ids'],
+			hypothesis_ids=batch['hypothesis_ids'],
+			premise_padding=padding_mask['premise'],
+			hypothesis_padding=padding_mask['hypothesis']
+		)
+		
+		a_hat = {s: a.detach() for s, a in a_hat.items()}
 		
 		return {'y_hat': y_hat,
 		        'y_true': batch['y_true'],
-		        'a_hat': a_hat.detach(),
+		        'a_hat': a_hat,
 		        'a_true': batch['a_true'],
-		        'padding_mask': batch['padding_mask']}
+		        'padding_mask': padding_mask}
 	
 	def predict_step(self, batch, batch_idx):
 		
@@ -184,18 +201,24 @@ class SingleEkeyLqueryModule(pl.LightningModule):
 		y_hat, y_true = outputs['y_hat'], outputs['y_true']
 		padding_mask = outputs['padding_mask']
 		
-		flat_a_hat, flat_a_true = self.flatten_attention(a_hat=a_hat, a_true=a_true, condition=y_true > 0, pad_mask=padding_mask, normalize='softmax_rescale')
+		flat_a_hat = [self.flatten_attention(attention=a_hat[s], condition=y_true > 0, pad_mask=padding_mask[s], normalize='softmax_rescale') for s in a_hat]
+		flat_a_true = [self.flatten_attention(attention=a_true[s], condition=y_true > 0, pad_mask=padding_mask[s]) for s  in a_true]
 		
+		flat_a_hat = torch.cat(flat_a_hat)
+		flat_a_true = torch.cat(flat_a_true)
 		# log attentions metrics
-		if flat_a_hat is not None and a_hat.size(0) > 0:
+		if flat_a_hat.size(0) > 0:
 			metric_a = self.attention_metrics[stage](flat_a_hat, flat_a_true)
-			metric_a['a:entropy'] = self.entropy_metric[stage](a_hat, padding_mask)
-			metric_a = {f'{stage}/{k}': v.item() for k, v in metric_a.items()}  # put metrics within same stage under the same folder
+			# metric_a['a:entropy'] = 0.5 * sum([metrics.entropy(a_hat[s], padding_mask[s], normalize=True, average='micro') for s in a_hat])
+			for s in a_hat:    metric_a['a:entropy'] = self.entropy_metric[stage](a_hat[s], padding_mask[s])
+			metric_a = {f'{stage}/{k}': v.item() for k, v in
+			            metric_a.items()}  # put metrics within same stage under the same folder
 			self.log_dict(metric_a, prog_bar=True)
 		
 		# log for classification metrics
 		metric_y = self.y_metrics[stage](y_hat, y_true)
-		metric_y = {f'{stage}/{k}': v for k, v in metric_y.items()}  # put metrics within same stage under the same folder
+		metric_y = {f'{stage}/{k}': v for k, v in
+		            metric_y.items()}  # put metrics within same stage under the same folder
 		self.log_dict(metric_y, prog_bar=True)
 		
 		if stage != 'TEST':
@@ -203,7 +226,8 @@ class SingleEkeyLqueryModule(pl.LightningModule):
 			loss_names = [k for k in outputs.keys() if 'loss' in k]
 			for loss_metric in loss_names:
 				self.log(f'{stage}/{loss_metric}', outputs[loss_metric], prog_bar=True)
-	
+
+
 	def training_step_end(self, outputs):
 		return self.step_end(outputs, stage='TRAIN')
 	
@@ -213,7 +237,7 @@ class SingleEkeyLqueryModule(pl.LightningModule):
 	def test_step_end(self, outputs):
 		return self.step_end(outputs, stage='TEST')
 	
-	def flatten_attention(self, a_hat, a_true, pad_mask, condition=None, normalize:str =''):
+	def flatten_attention(self, attention, pad_mask, condition=None, normalize: str = ''):
 		"""
 		Filter attention
 		Args:
@@ -228,29 +252,25 @@ class SingleEkeyLqueryModule(pl.LightningModule):
 
 		"""
 		if condition is None:
-			condition = torch.ones(a_hat.size(0)).type(torch.bool)
+			condition = torch.ones(attention.size(0)).type(torch.bool)
 		
 		if (~condition).all():
-			return None, None
+			return torch.tensor([])
 		
 		# Filter by condition on y
-		a_hat = a_hat[condition]
-		a_true = a_true[condition]
+		attention = attention[condition]
 		pad_mask = pad_mask[condition]
 		
 		# Ir normalize specify:
 		if normalize == 'sigmoid':
-			a_hat = torch.sigmoid(a_hat)
+			attention = torch.sigmoid(attention)
 		if 'softmax' in normalize:
-			a_hat = torch.softmax(a_hat + pad_mask.float() * -INF, dim=1)
+			attention = torch.softmax(attention + pad_mask.float() * -INF, dim=1)
 		if 'rescale' in normalize:
-			a_hat = rescale(a_hat, pad_mask)
-			
-		# Filter by mask
-		flat_a_hat = a_hat[~pad_mask]
-		flat_a_true = a_true[~pad_mask]
+			attention = rescale(attention, pad_mask)
 		
-		return flat_a_hat, flat_a_true
+		# Filter by mask
+		return attention[~pad_mask]
 	
 	
 	def on_train_start(self):   
@@ -264,7 +284,7 @@ class SingleEkeyLqueryModule(pl.LightningModule):
 		# See: https://github.com/PyTorchLightning/pytorch-lightning/issues/2189
 		if self._mode == Mode.DEV:
 			print()
-	
+			
 	def epoch_end(self, stage):
 		if self._mode == Mode.EXP:
 			metric = self.y_metrics[stage].compute()

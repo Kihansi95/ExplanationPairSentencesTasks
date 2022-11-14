@@ -153,9 +153,10 @@ class CLSTokenHateXPlainDM(HateXPlainDM):
 		b = super(CLSTokenHateXPlainDM, self).collate(batch)
 		
 		# adding CLS token at the beginning
-		cls_ids = torch.tensor([self.vocab[SpecToken.CLS]]).repeat(self.batch_size, 1)
-		cls_pad = torch.tensor([0.]).repeat(self.batch_size, 1)  # we contextualise the CLS token
-		att_pad = torch.tensor([0.]).repeat(self.batch_size, 1)
+		bsz = b['token_ids'].size(0) # == batch_size or len(data) if len(data) < batch_size
+		cls_ids = torch.tensor([self.vocab[SpecToken.CLS]]).repeat(bsz, 1)
+		cls_pad = torch.tensor([0.]).repeat(bsz, 1)  # we contextualise the CLS token
+		att_pad = torch.tensor([0.]).repeat(bsz, 1)
 		
 		# udpate classic batch with adding
 		b.update({
