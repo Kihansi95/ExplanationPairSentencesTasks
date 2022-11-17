@@ -43,12 +43,12 @@ class YelpHatDM(pl.LightningDataModule):
 		dataset_path = SpacyPretokenizeYelpHat.root(self.cache_path)
 		lemma = True
 		lower = True
-		vocab_path = path.join(dataset_path, f'vocab{"_lemma" if lemma else ""}{"_lower" if lower else ""}.pt')
+		self.vocab_path = path.join(dataset_path, f'vocab{"_lemma" if lemma else ""}{"_lower" if lower else ""}.pt')
 		
 		SpacyPretokenizeYelpHat.download_format_dataset(dataset_path)  # only 1 line, download all dataset
 		
 		# build_vocab()
-		if not path.exists(vocab_path):
+		if not path.exists(self.vocab_path):
 			
 			# return a single list of tokens
 			def flatten_token(batch):
@@ -67,15 +67,15 @@ class YelpHatDM(pl.LightningDataModule):
 			vocab.set_default_index(vocab[SpecToken.UNK])
 			
 			# Announce where we save the vocabulary
-			torch.save(vocab, vocab_path, pickle_protocol=pickle.HIGHEST_PROTOCOL)  # Use highest protocol to speed things up
-			iter_tokens.set_postfix({'path': vocab_path})
-			if env.disable_tqdm: log.info(f'Vocabulary is saved at {vocab_path}')
+			torch.save(vocab, self.vocab_path, pickle_protocol=pickle.HIGHEST_PROTOCOL)  # Use highest protocol to speed things up
+			iter_tokens.set_postfix({'path': self.vocab_path})
+			if env.disable_tqdm: log.info(f'Vocabulary is saved at {self.vocab_path}')
 			iter_tokens.close()
 			self.vocab = vocab
 			
 		else:
-			self.vocab = torch.load(vocab_path)
-			log.info(f'Loaded vocab at {vocab_path}')
+			self.vocab = torch.load(self.vocab_path)
+			log.info(f'Loaded vocab at {self.vocab_path}')
 		
 		log.info(f'Vocab size: {len(self.vocab)}')
 		
@@ -211,6 +211,30 @@ class CLSTokenYelpHatDM(YelpHatDM):
 	def __init__(self, **kwargs):
 		super(CLSTokenYelpHatDM, self).__init__(**kwargs)
 	
+	def prepare_data(self):
+		super(CLSTokenYelpHatDM, self).prepare_data()
+		
+		# called only on 1 GPU
+		VOCAB_SUFFIX = '_CLS'
+		if VOCAB_SUFFIX not in self.vocab_path:
+			fname, fext = path.splitext(self.vocab_path)
+			self.vocab_path = fname + VOCAB_SUFFIX + fext
+			
+		# build_vocab()
+		if not path.exists(self.vocab_path):
+			self.vocab.append_token(SpecToken.CLS)
+			
+			# Announce where we save the vocabulary
+			torch.save(self.vocab, self.vocab_path, pickle_protocol=pickle.HIGHEST_PROTOCOL)  # Use highest protocol to speed things up
+			if env.disable_tqdm: log.info(f'Vocab CLS is saved at {self.vocab_path}')
+		
+		else:
+			self.vocab = torch.load(self.vocab_path)
+			log.info(f'Loaded vocab CLS at {self.vocab_path}')
+		
+		log.info(f'Vocab size: {len(self.vocab)}')
+		
+	
 	def collate(self, batch):
 		b = super(CLSTokenYelpHatDM, self).collate(batch)
 		
@@ -246,7 +270,7 @@ class CLSTokenYelpHat50DM(CLSTokenYelpHatDM):
 	
 	def test_dataloader(self):
 		return DataLoader(self.test_set, batch_size=self.batch_size, shuffle=False, collate_fn=self.collate, num_workers=self.num_workers)
-
+	
 
 class CLSTokenYelpHat100DM(CLSTokenYelpHat50DM):
 	name = 'YelpHat-100'

@@ -100,6 +100,12 @@ def parse_argument(prog: str = __name__, description: str = 'Train LSTM-based at
 	print(json.dumps(vars(params), indent=4))
 	
 	params.mode = params.mode.lower()
+	if params.strategy == 'ddp_find_off':
+		from pytorch_lightning.strategies import DDPStrategy
+		params.strategy = DDPStrategy(find_unused_parameters=False)
+	elif params.strategy == 'ddp_spawn_find_off':
+		from pytorch_lightning.strategies import DDPSpawnStrategy
+		params.strategy = DDPSpawnStrategy(find_unused_parameters=False)
 	return params
 
 if __name__ == '__main__':

@@ -1,6 +1,7 @@
 from model import Net
 
 import torch
+from torch import nn
 
 from model.layers.attention import Attention
 from model.layers.fully_connected import FullyConnected
