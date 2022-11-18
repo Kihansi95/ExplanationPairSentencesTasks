@@ -106,9 +106,6 @@ class AttitModel(pl.LightningModule):
         })
 
     def forward(self, ids, mask):
-        log.debug('='*5 +'Input tokens in model:' + '='*5)
-        for tokens in ids:
-            log.debug(self.vocab.lookup_tokens(tokens.tolist()))
         return self.model(ids=ids, mask=mask)
 
     def configure_optimizers(self):
