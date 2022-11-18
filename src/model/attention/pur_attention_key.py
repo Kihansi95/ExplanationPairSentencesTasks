@@ -104,16 +104,24 @@ class PureAttention(nn.Module):
             # Compute attention : contextualization of the embeddings
             # compute the attention on the embeddings
             # /!\ the attention weights are already averaged on the number of heads.
-            x, attn_weights, k, q, v = l(query=x,
-                                         key=x,
-                                         value=x,
-                                         key_padding_mask=mask
-                                         )
-            # TODO : do we have a better accuracy with the connection we added
-            # Then do we need to put the connections in this model.
+            context, attn_weights, k, q, v = l(query=x,
+                                               key=x,
+                                               value=x,
+                                               key_padding_mask=mask
+                                               )
 
+            # ADD
+            x = context + x
+
+            # NORM
+            m = torch.mean(x, dim=-1).unsqueeze(dim=-1).repeat(1, 1, x.shape[-1])
+            v = torch.var(x, dim=-1).unsqueeze(dim=-1).repeat(1, 1, x.shape[-1])
+            x = (x - m) / torch.sqrt(v)
+
+            # the embedding and the attention
             hidden_states.append(x)
             attention_weights.append(attn_weights)
+
             # update the embeddings on the different spaces
             key_embeddings.append(k)
             request_embeddings.append(q)
