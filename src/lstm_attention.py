@@ -62,6 +62,8 @@ def parse_argument(prog: str = __name__, description: str = 'Train LSTM-based at
 	parser.add_argument('--fast_dev_run', action='store_true')
 	parser.add_argument('--detect_anomaly', action='store_true')
 	parser.add_argument('--track_grad_norm', type=int, default=-1)
+	parser.add_argument('--devices', type=int)
+	parser.add_argument('--num_nodes', type=int)
 	
 	# Model configuration
 	parser.add_argument('--vectors', type=str, help='Pretrained vectors. See more in torchtext Vocab, example: glove.840B.300d')
@@ -86,7 +88,6 @@ def parse_argument(prog: str = __name__, description: str = 'Train LSTM-based at
 	parser.add_argument('--test', action='store_true')
 	parser.add_argument('--predict', action='store_true')
 	parser.add_argument('--morpho_filter', action='store_true')
-	
 	
 	# Regularizer
 	parser.add_argument('--lambda_entropy', type=float, default=0., help='multiplier for entropy')
@@ -213,6 +214,8 @@ if __name__ == '__main__':
 		track_grad_norm=args.track_grad_norm, # track_grad_norm=2 for debugging
 		detect_anomaly=args.detect_anomaly, # deactivate on large scale experiemnt
 		benchmark=False,    # benchmark = False better time in NLP
+		devices=args.devices,
+		num_nodes=args.num_nodes
 	)
 	
 	# Set up output path

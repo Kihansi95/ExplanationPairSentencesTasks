@@ -112,8 +112,8 @@ class SingleEkeyLqueryModule(pl.LightningModule):
 		return self.model(ids=ids, mask=mask)
 
 	def configure_optimizers(self):
-		#optimizer = optim.Adam(self.parameters())
-		optimizer = optim.Adadelta(self.parameters())
+		optimizer = optim.Adam(self.parameters())
+		# optimizer = optim.Adadelta(self.parameters())
 		return optimizer
 	
 	def training_step(self, batch, batch_idx, val=False):
