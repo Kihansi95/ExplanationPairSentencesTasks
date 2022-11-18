@@ -13,15 +13,15 @@ from tqdm import tqdm
 from data.esnli.pretransform_dataset import PretransformedESNLI
 from data.esnli.transforms import HighlightTransform, HeuristicTransform
 from data.transforms import LemmaLowerTokenizerTransform
-from data_module.constant import *
 from modules import env
+from modules.const import SpecToken
 from modules.logger import log
 
 
 class ESNLIDM(pl.LightningDataModule):
     name = 'eSNLI'
 
-    def __init__(self, cache_path, batch_size=8, num_workers=0, n_data=-1, shuffle=True, pur_attention: bool = False):
+    def __init__(self, cache_path, batch_size=8, num_workers=0, n_data=-1, shuffle=True):
         super().__init__()
         self.cache_path = cache_path
         self.batch_size = batch_size
@@ -31,7 +31,6 @@ class ESNLIDM(pl.LightningDataModule):
         self.shuffle = shuffle
         self.num_class = PretransformedESNLI.NUM_CLASS
         self.input_type = PretransformedESNLI.INPUT
-        self.pur_attention = pur_attention
 
         spacy_model = spacy.load('en_core_web_sm')
         tokenizer_transform = LemmaLowerTokenizerTransform(spacy_model)
@@ -62,13 +61,13 @@ class ESNLIDM(pl.LightningDataModule):
 
         # download_dataset()
         dataset_path = PretransformedESNLI.root(self.cache_path)
-        vocab_path = path.join(dataset_path, f'vocab.pt')
+        self.vocab_path = path.join(dataset_path, f'vocab.pt')
 
         for split in ['train', 'val', 'test']:
             PretransformedESNLI.download_format_dataset(dataset_path, split)
 
         # build_vocab()
-        if not path.exists(vocab_path):
+        if not path.exists(self.vocab_path):
 
             # return a single list of tokens
             def flatten_token(batch):
@@ -85,24 +84,19 @@ class ESNLIDM(pl.LightningDataModule):
             iter_tokens = tqdm(iter(dp), desc='Building vocabulary', total=len(dp), unit='sents', file=sys.stdout,
                                disable=env.disable_tqdm)
             if env.disable_tqdm: log.info(f'Building vocabulary')
-            if not self.pur_attention:
-                vocab = build_vocab_from_iterator(iterator=iter_tokens, specials=[PAD_TOK, UNK_TOK])
-            else:
-                # add the cls token to the vocabulary
-                vocab = build_vocab_from_iterator(iterator=iter_tokens, specials=[PAD_TOK, UNK_TOK, CLS_TOK])
+            vocab = build_vocab_from_iterator(iterator=iter_tokens, specials=[SpecToken.PAD, SpecToken.UNK])
 
-            vocab.set_default_index(vocab[UNK_TOK])
+            vocab.set_default_index(vocab[SpecToken.UNK])
 
             # Announce where we save the vocabulary
-            torch.save(vocab, vocab_path,
-                       pickle_protocol=pickle.HIGHEST_PROTOCOL)  # Use highest protocol to speed things up
-            iter_tokens.set_postfix({'path': vocab_path})
-            if env.disable_tqdm: log.info(f'Vocabulary is saved at {vocab_path}')
+            torch.save(vocab, self.vocab_path, pickle_protocol=pickle.HIGHEST_PROTOCOL)  # Use highest protocol to speed things up
+            iter_tokens.set_postfix({'path': self.vocab_path})
+            if env.disable_tqdm: log.info(f'Vocabulary is saved at {self.vocab_path}')
             iter_tokens.close()
             self.vocab = vocab
         else:
-            self.vocab = torch.load(vocab_path)
-            log.info(f'Loaded vocab at {vocab_path}')
+            self.vocab = torch.load(self.vocab_path)
+            log.info(f'Loaded vocab at {self.vocab_path}')
 
         log.info(f'Vocab size: {len(self.vocab)}')
 
@@ -112,7 +106,7 @@ class ESNLIDM(pl.LightningDataModule):
         # predefined processing mapper for setup
         self.text_transform = T.Sequential(
             T.VocabTransform(self.vocab),
-            T.ToTensor(padding_value=self.vocab[PAD_TOK])
+            T.ToTensor(padding_value=self.vocab[SpecToken.PAD])
         )
 
         self.rationale_transform = T.Sequential(
@@ -125,8 +119,7 @@ class ESNLIDM(pl.LightningDataModule):
         )
 
     def setup(self, stage: str = None):
-        dataset_kwargs = dict(root=self.cache_path, n_data=self.n_data, transformations=self.transformations,
-                              column_name=self.rename_columns, )
+        dataset_kwargs = dict(root=self.cache_path, n_data=self.n_data, transformations=self.transformations, column_name=self.rename_columns, )
 
         # called on every GPU
         if stage == 'fit' or stage is None:
@@ -137,16 +130,13 @@ class ESNLIDM(pl.LightningDataModule):
             self.test_set = PretransformedESNLI(split='test', **dataset_kwargs)
 
     def train_dataloader(self):
-        return DataLoader(self.train_set, batch_size=self.batch_size, shuffle=self.shuffle, collate_fn=self.collate,
-                          num_workers=self.num_workers)
+        return DataLoader(self.train_set, batch_size=self.batch_size, shuffle=self.shuffle, collate_fn=self.collate, num_workers=self.num_workers)
 
     def val_dataloader(self):
-        return DataLoader(self.val_set, batch_size=self.batch_size, shuffle=False, collate_fn=self.collate,
-                          num_workers=self.num_workers)
+        return DataLoader(self.val_set, batch_size=self.batch_size, shuffle=False, collate_fn=self.collate, num_workers=self.num_workers)
 
     def test_dataloader(self):
-        return DataLoader(self.test_set, batch_size=self.batch_size, shuffle=False, collate_fn=self.collate,
-                          num_workers=self.num_workers)
+        return DataLoader(self.test_set, batch_size=self.batch_size, shuffle=False, collate_fn=self.collate, num_workers=self.num_workers)
 
     ## ======= PRIVATE SECTIONS ======= ##
 
@@ -165,32 +155,10 @@ class ESNLIDM(pl.LightningDataModule):
         }
 
         b['padding_mask'] = {
-            'premise': b['premise_ids'] == self.vocab[PAD_TOK],
-            'hypothesis': b['hypothesis_ids'] == self.vocab[PAD_TOK],
+            'premise': b['premise_ids'] == self.vocab[SpecToken.PAD],
+            'hypothesis': b['hypothesis_ids'] == self.vocab[SpecToken.PAD],
         }
 
-        if self.pur_attention:
-            # we change here the shape of the dictionary b
-            # concatenation for one sentence.
-            t = b["premise_ids"].shape[0]
-            cls_ids = torch.tensor([self.vocab[CLS_TOK]]).repeat(t, 1)
-            cls_padding = torch.tensor([0.]).repeat(t, 1)
-            att_padding = torch.tensor([0.]).repeat(t, 1)
-            num = torch.log(b['a_true']['premise'].sum(dim=-1) + b['a_true']['hypothesis'].sum(dim=-1))
-
-            den = torch.log(
-                (~b['padding_mask']['premise']).sum(dim=-1) + (~b['padding_mask']['hypothesis']).sum(dim=-1)
-            )
-            a_true_entropy = num / den
-            temp = {
-                'token_ids': torch.cat((cls_ids, b['premise_ids'], b['hypothesis_ids']), 1),
-                'padding_mask': torch.cat((cls_padding, b['padding_mask']['premise'], b['padding_mask']['hypothesis']),
-                                          1),
-                'a_true': torch.cat((att_padding, b['a_true']['premise'], b['a_true']['hypothesis']), 1),
-                'y_true': b['y_true'],
-                'a_true_entropy': a_true_entropy
-            }
-            b = temp
         return b
 
     def list2dict(self, batch):
@@ -205,13 +173,37 @@ class CLSTokenESNLIDM(ESNLIDM):
     def __init__(self, **kwargs):
         super(CLSTokenESNLIDM, self).__init__(**kwargs)
 
+    def prepare_data(self):
+        super(CLSTokenESNLIDM, self).prepare_data()
+    
+        # called only on 1 GPU
+        VOCAB_SUFFIX = '_CLS'
+        if VOCAB_SUFFIX not in self.vocab_path:
+            fname, fext = path.splitext(self.vocab_path)
+            self.vocab_path = fname + VOCAB_SUFFIX + fext
+    
+        # build_vocab()
+        if not path.exists(self.vocab_path):
+            self.vocab.append_token(SpecToken.CLS)
+        
+            # Announce where we save the vocabulary
+            torch.save(self.vocab, self.vocab_path, pickle_protocol=pickle.HIGHEST_PROTOCOL)  # Use highest protocol to speed things up
+            if env.disable_tqdm: log.info(f'Vocab CLS is saved at {self.vocab_path}')
+    
+        else:
+            self.vocab = torch.load(self.vocab_path)
+            log.info(f'Loaded vocab CLS at {self.vocab_path}')
+    
+        log.info(f'Vocab size: {len(self.vocab)}')
+        
+        
     def collate(self, batch):
         b = super(CLSTokenESNLIDM, self).collate(batch)
 
         # we change here the shape of the dictionary b
         # concatenation for one sentence.
         t = b["premise_ids"].shape[0]
-        cls_ids = torch.tensor([self.vocab[CLS_TOK]]).repeat(t, 1)
+        cls_ids = torch.tensor([self.vocab[SpecToken.CLS]]).repeat(t, 1)
         cls_padding = torch.tensor([0.]).repeat(t, 1)
         att_padding = torch.tensor([0.]).repeat(t, 1)
         num = torch.log(b['a_true']['premise'].sum(dim=-1) + b['a_true']['hypothesis'].sum(dim=-1))

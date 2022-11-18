@@ -6,7 +6,7 @@ from model.layers.fully_connected import FullyConnected
 from modules.logger import log
 
 
-class SingleEkeyLquery(nn.Module):
+class DualEkeyLquery(nn.Module):
 	
 	def __init__(self, d_embedding: int,
 	             padding_idx: int,
@@ -19,7 +19,7 @@ class SingleEkeyLquery(nn.Module):
 		Delta model has a customized attention layers
 		"""
 		
-		super(SingleEkeyLquery, self).__init__()
+		super(DualEkeyLquery, self).__init__()
 		# Get model parameters
 		assert not(vocab_size is None and pretrained_embedding is None), 'Provide either vocab size or pretrained embedding'
 		
@@ -43,7 +43,8 @@ class SingleEkeyLquery(nn.Module):
 		d_in_contextualize = d_embedding
 		d_hidden_lstm = kwargs.get('d_hidden_lstm', d_in_contextualize)
 		n_context = kwargs.get('n_context', 1)
-		self.lstm = nn.LSTM(input_size=d_in_contextualize, hidden_size=d_hidden_lstm, num_layers=n_context, batch_first=True, bidirectional=True, dropout=(n_context > 1) * dropout)
+		self.bidirectional = True
+		self.lstm = nn.LSTM(input_size=d_in_contextualize, hidden_size=d_hidden_lstm, num_layers=n_context, batch_first=True, bidirectional=self.bidirectional, dropout=(n_context > 1) * dropout)
 		
 		# Bidirectional
 		d_out_contextualize = d_in_contextualize * 2
@@ -59,7 +60,7 @@ class SingleEkeyLquery(nn.Module):
 		
 		d_fc_out = kwargs.get('d_fc_out', d_context)
 		
-		d_in_squeeze = d_context + concat_context * d_out_contextualize
+		d_in_squeeze = (d_context + concat_context * d_out_contextualize) * 2
 		self.concat_context = concat_context
 		
 		self.fc_squeeze = FullyConnected(d_in_squeeze, d_fc_out, activation=activation, dropout=dropout)
@@ -79,51 +80,76 @@ class SingleEkeyLquery(nn.Module):
 		# Constants
 		self.d = 1 + int(self.lstm.bidirectional)
 		
+	def forward_lstm(self, x: torch.LongTensor):
+		"""
+        Contextualize each branch by lstm
+
+        Args:
+            x: embedding
+
+        Returns:
+        """
+		x = self.embedding(x)
+		n_direction = int(self.bidirectional) + 1
+		
+		# hidden.size() == (1, N, d_hidden_lstm)
+		# hseq.size() == (N, L, d_hidden_lstm)
+		self.lstm.flatten_parameters()  # flatten parameters for data parallel
+		hseq, (hidden, _) = self.lstm(x)
+		
+		hidden = hidden[-n_direction:].permute(1, 0, 2)  # size() == (N, n_direction, d_hidden_lstm)
+		hidden = hidden.reshape(hidden.size(0), 1, -1)  # size() == (N, 1, n_direction * d_hidden_lstm)
+		
+		return hidden, hseq
 	
-	def forward(self, **input_):
-		"""
-
-		Args:
-			ids: token ids
-			mask: padding mask
-
-		Returns:
-
-		"""
+	def forward(self, premise_ids, hypothesis_ids, premise_padding=None, hypothesis_padding=None):
+		
 		# N = batch_size
 		# L = sequence_length
 		# h = hidden_dim = embedding_size
 		# C = n_class
-		ids = input_['ids']
-		mask = input_.get('mask', torch.zeros_like(ids))
+		ids = {'premise': premise_ids, 'hypothesis': hypothesis_ids}
+		padding_mask = {'premise': premise_padding, 'hypothesis': hypothesis_padding}
 		
 		# Reproduce hidden representation from LSTM
-		e = self.embedding(ids)
-		
-		self.lstm.flatten_parameters()  # flatten parameters for data parallel
-		h_seq, (h_context, _) = self.lstm(e)
-		
-		h_context = h_context[-self.d:].permute(1, 0, 2)  # size() == (N, n_direction, d_hidden_lstm)
-		h_context = h_context.reshape(h_context.size(0), 1, -1)  # size() == (N, 1, n_direction * d_hidden_lstm)
-		
-		# Reswapping dimension for multihead attention
-		
+		h_context = dict()
+		e = dict()
+		for side, x in ids.items():
+			e[side] = self.embedding(x)
+			
+			self.lstm.flatten_parameters()  # flatten parameters for data parallel
+			_, (h_last, _) = self.lstm(e[side]) # (n_direction, L, d_out_lstm)
+			
+			n_direction = int(self.bidirectional) + 1
+			h_last = h_last[-n_direction:].permute(1, 0, 2)  # size() == (N, n_direction, d_out_lstm)
+			
+			# Reswapping dimension for multihead attention
+			h_context[side] = h_last.reshape(h_last.size(0), 1, -1)  # (N, 1, n_direction * d_out_lstm)
+	
+	
 		# Compute attention
-		# context.size() == (N, 1, d_attention)
-		# attn_weight.size() == (N, 1, L)
-		context, attn_weights = self.attention(query=h_context, key=e, value=e, key_padding_mask=mask)
-		context = context.squeeze(dim=1)
-		h_context = h_context.squeeze(dim=1)    #
-		attn_weights = attn_weights.squeeze(1)  # (N, L)
-
-		x = torch.cat([context, h_context], dim=1) if self.concat_context else context
+		attn_weights = dict()
+		context = dict()
+		sides = list(ids.keys())
+		for s, s_bar in sides, sides[::-1]:
+			# context.size() == (N, 1, d_attention)
+			# attn_weight.size() == (N, 1, L)
+			context[s_bar], attn_weights[s] = self.attention(query=h_context[s_bar], key=e[s], value=e[s],key_padding_mask=padding_mask[s])
+			attn_weights[s] = attn_weights[s].squeeze(1)    # attn_weights.size() == (N, L)
+		
+		for s in sides:
+			context[s] = context[s].squeeze(dim=1)  # (N, d_attention)
+			h_context[s] = h_context[s].squeeze(dim=1)      # (N, d_attention)
+		
+		if self.concat_context:
+			x = torch.cat(list(context.values()) + list(h_context.values()), dim=1)  # (N, d_concat)
+		else:
+			x = torch.cat(list(context.values()), dim=1)
 		x = self.fc_squeeze(x)  # (N, d_fc_out)
 		
 		for fc in self.fc_out:
 			x = fc(x)  # (N, d_fc_out) unchanged
 		out = self.classifier(x)  # (N, n_class)
-		
-		
 		
 		return out, attn_weights
 
@@ -178,7 +204,7 @@ if __name__ == '__main__':
 	
 	y = torch.tensor(y, dtype=torch.long)
 	
-	model = SingleEkeyLquery(d_in=300, dropout=0, d_fc_lstm=-1, d_fc_attentiion=-1, d_context=-1, n_class=3, n_fc_out=0)
+	model = DualEkeyLquery(d_in=300, dropout=0, d_fc_lstm=-1, d_fc_attentiion=-1, d_context=-1, n_class=3, n_fc_out=0)
 	
 	model.train()
 	

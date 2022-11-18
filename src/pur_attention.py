@@ -13,9 +13,7 @@ from torchtext.vocab.vectors import pretrained_aliases as pretrained
 
 import torchmetrics as m
 
-from data_module.hatexplain import  CLSTokenHateXPlainDM
-from data_module.yelp_hat import *
-from data_module.esnli import ESNLIDM
+from data_module import *
 from modules.const import SpecToken, Mode
 
 from modules.logger import log, init_logging
@@ -108,6 +106,9 @@ class AttitModel(pl.LightningModule):
         })
 
     def forward(self, ids, mask):
+        log.debug('='*5 +'Input tokens in model:' + '='*5)
+        for tokens in ids:
+            log.debug(self.vocab.lookup_tokens(tokens.tolist()))
         return self.model(ids=ids, mask=mask)
 
     def configure_optimizers(self):
@@ -445,8 +446,7 @@ if __name__ == '__main__':
     elif args.data == 'yelphat200':
         dm = CLSTokenYelpHat200DM(**dm_kwargs)
     elif args.data == 'esnli':
-        raise ValueError('Not implemented yet')
-        dm = ESNLIDM(**dm_kwargs)
+        dm = CLSTokenESNLIDM(**dm_kwargs)
     else:
         log.error(f'Unrecognized dataset: {args.data}')
         exit(1)

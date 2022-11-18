@@ -8,14 +8,14 @@ from model.layers.fully_connected import FullyConnected
 from modules.logger import log
 
 
-class DualPairLstmAttention(Net):
+class DualLstmAttention(Net):
 	
 	def __init__(self, d_embedding: int, padding_idx: int, vocab_size:int=None, pretrained_embedding=None, n_class=3, **kwargs):
 		"""
 		Delta model has a customized attention layers
 		"""
 		
-		super(DualPairLstmAttention, self).__init__()
+		super(DualLstmAttention, self).__init__()
 		# Get model parameters
 		assert not(vocab_size is None and pretrained_embedding is None), 'Provide either vocab size or pretrained embedding'
 		
@@ -99,10 +99,8 @@ class DualPairLstmAttention(Net):
 		# L = sequence_length
 		# h = hidden_dim = embedding_size
 		# C = n_class
-		#ids = [premise_ids, hypothesis_ids]
 		ids = {'premise': premise_ids, 'hypothesis': hypothesis_ids}
 		padding_mask = {'premise': premise_padding, 'hypothesis': hypothesis_padding}
-		# mask = [premise_padding, hypothesis_padding]
 		
 		# Reproduce hidden representation from LSTM
 		h_last = dict()
@@ -185,15 +183,15 @@ if __name__ == '__main__':
 	
 	y = torch.tensor(y, dtype=torch.long)
 	padding_idx = vocab['<pad>']
-	model = DualPairLstmAttention(d_embedding=300,
-	                              padding_idx=padding_idx,
-	                              vocab_size=len(vocab),
-	                              dropout=0,
-	                              d_fc_lstm=-1,
-	                              d_fc_attentiion=-1,
-	                              d_context=-1,
-	                              n_class=3,
-	                              n_fc_out=0)
+	model = DualLstmAttention(d_embedding=300,
+	                          padding_idx=padding_idx,
+	                          vocab_size=len(vocab),
+	                          dropout=0,
+	                          d_fc_lstm=-1,
+	                          d_fc_attentiion=-1,
+	                          d_context=-1,
+	                          n_class=3,
+	                          n_fc_out=0)
 	
 	model.train()
 	

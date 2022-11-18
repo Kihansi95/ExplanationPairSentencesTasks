@@ -54,7 +54,7 @@ class SingleEkeyLqueryModule(pl.LightningModule):
 		self.model = SingleEkeyLquery(pretrained_embedding=pretrained_vectors,
 		                                 vocab_size=len(vocab),
 		                                 d_embedding=kwargs['d_embedding'],
-		                                 padding_idx=vocab[PAD_TOK],
+		                                 padding_idx=vocab[SpecToken.PAD],
 		                                 n_class=num_class,
 		                                 n_context=n_context,
 		                                 concat_context=concat_context,

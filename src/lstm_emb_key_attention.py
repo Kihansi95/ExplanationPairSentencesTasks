@@ -327,7 +327,7 @@ def parse_argument(prog: str = __name__, description: str = 'Experimentation on 
 	# If data not provided, automatically get from '<cache>/dataset'
 	params.mode = params.mode.lower()
 	# params = {k: v for k, v in params.items() if v is not None}
-	env.disable_tqdm = params.OAR_ID is not None
+	env.disable_tqdm = params.OAR_ID is not None and os.getenv("LOCAL_RANK", '0') == '0'
 	return params
 
 # const for mode
