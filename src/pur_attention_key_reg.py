@@ -13,9 +13,9 @@ from torchtext.vocab.vectors import pretrained_aliases as pretrained
 
 import torchmetrics as m
 
-from data_module.hatexplain import HateXPlainDM
+from data_module.hatexplain import CLSTokenHateXPlainDM
 from data_module.yelp_hat import *
-from data_module.esnli import ESNLIDM
+from data_module.esnli import CLSTokenESNLIDM
 from modules.const import SpecToken, Mode
 
 from modules.logger import log, init_logging
@@ -31,7 +31,6 @@ class AttitModel(pl.LightningModule):
                  lambda_entropy: float = 0.,
                  lambda_supervise: float = 0.,
                  lambda_lagrange: float = 0.,
-                 lambda_key_space: float = 0.,
                  data='Unk data',
                  num_class=-1,
                  num_layers=1,
@@ -43,7 +42,7 @@ class AttitModel(pl.LightningModule):
 
         # log hyperparameters into hparams.yaml
         self.save_hyperparameters('data', 'num_layers', 'num_heads', 'lambda_entropy', 'lambda_supervise',
-                                  'lambda_lagrange', 'lambda_key_space')
+                                  'lambda_lagrange')
         self.data = data
 
         if pretrained_vectors is not None and isinstance(pretrained_vectors, str):
@@ -74,7 +73,6 @@ class AttitModel(pl.LightningModule):
         self.num_class = num_class
         self.vocab = vocab
         self._mode = mode
-        self.lambda_key = lambda_key_space
         self.lambda_entropy = lambda_entropy
         self.lambda_supervise = lambda_supervise
         self.lambda_lagrange = lambda_lagrange
@@ -116,10 +114,10 @@ class AttitModel(pl.LightningModule):
 
     def configure_optimizers(self):
         if self.opt == "adam":
-            # adam optimizer
+            log.debug("use of the adam optimizer")
             optimizer = optim.Adam(self.parameters())
         else:
-            # adadelta : adaptative learning
+            log.debug("use of the adadelta optimizer")
             optimizer = optim.Adadelta(self.parameters())
         return optimizer
 
@@ -132,7 +130,6 @@ class AttitModel(pl.LightningModule):
 
         # training part
         y_hat = output_model["logits"]
-        K = torch.stack(output_model["key_embeddings"], dim=1)[:, 0, :, :]  # we work only on one layer
         loss_classif = self.loss_fn(y_hat, y_true)
 
         # A_HAT (CLS line)
@@ -144,19 +141,6 @@ class AttitModel(pl.LightningModule):
         entropy_mask[:, 0] = 1.  # we don't take into account the CLS token
         a_hat_entropy = metrics.entropy(a_hat, entropy_mask.bool(), normalize=True)
         loss_entropy = a_hat_entropy.mean()  # mean of the entropy over a batch
-
-        # KEY SPACE WORK : recall bmm batch matrix multiplication
-        dot_prod = torch.bmm(K, torch.transpose(K, 1, 2))  # dot product
-        v = torch.diagonal(dot_prod, offset=0, dim1=1, dim2=2).unsqueeze(-1)
-        nms = torch.sqrt(torch.bmm(v, torch.transpose(v, 1, 2)))  # norm calculus
-        s_mat = dot_prod / nms  # shape of (N, L, L)
-        buff = (~padding_mask).float().unsqueeze(1).repeat(1, batch["token_ids"].shape[1], 1)
-        s_mat = s_mat * buff
-        s_mat = s_mat * torch.transpose(buff, 1, 2)
-        t_s = (~padding_mask).float().sum(dim=-1)  # number of tokens in the sentence
-        den = t_s * (t_s - 1)
-        num = s_mat.sum(dim=-1).sum(dim=-1) - torch.diagonal(s_mat, offset=0, dim1=1, dim2=2).sum(dim=-1)
-        loss_key = (num / den).mean()
 
         # Sigmoid for IoU loss
         flat_a_hat, flat_a_true = self.flatten_attention(a_hat=a_hat, a_true=a_true.int(), condition=y_true > 0,
@@ -173,15 +157,13 @@ class AttitModel(pl.LightningModule):
         # add all the regularization parts
         loss = loss_classif + self.lambda_entropy * loss_entropy + \
                self.lambda_supervise * loss_supervise + \
-               self.lambda_lagrange * loss_lagrange + \
-               self.lambda_key * loss_key
-        # a_hat_buff = a_hat.clone().detach()
+               self.lambda_lagrange * loss_lagrange
+
         return {
             'loss': loss,
             'loss_entropy': loss_entropy,
             'loss_supervise': loss_supervise,
             'loss_lagrange': loss_lagrange,
-            'loss_key': loss_key,
             'y_hat': y_hat,
             'y_true': y_true,
             'a_hat': a_hat,
@@ -412,7 +394,6 @@ def parse_argument(prog: str = __name__, description: str = 'Experimentation on 
     parser.add_argument('--predict', action='store_true')
 
     # Regularizer
-    parser.add_argument('--lambda_key', type=float, default=0., help='multiplier for key space geometry')
     parser.add_argument('--lambda_entropy', type=float, default=0., help='multiplier for entropy')
     parser.add_argument('--lambda_supervise', type=float, default=0., help='multiplier for supervise')
     parser.add_argument('--lambda_lagrange', type=float, default=0.,
@@ -451,17 +432,17 @@ if __name__ == '__main__':
                      pur_attention=True)
 
     if args.data == 'hatexplain':
-        dm = HateXPlainDM(**dm_kwargs)
+        dm = CLSTokenHateXPlainDM(**dm_kwargs)
     elif args.data == 'yelphat':
-        dm = YelpHatDM(**dm_kwargs)
+        dm = CLSTokenYelpHatDM(**dm_kwargs)
     elif args.data == 'yelphat50':
-        dm = YelpHat50DM(**dm_kwargs)
+        dm = CLSTokenYelpHat50DM(**dm_kwargs)
     elif args.data == 'yelphat100':
-        dm = YelpHat100DM(**dm_kwargs)
+        dm = CLSTokenYelpHat100DM(**dm_kwargs)
     elif args.data == 'yelphat200':
-        dm = YelpHat200DM(**dm_kwargs)
+        dm = CLSTokenYelpHat200DM(**dm_kwargs)
     elif args.data == 'esnli':
-        dm = ESNLIDM(**dm_kwargs)
+        dm = CLSTokenESNLIDM(**dm_kwargs)
     else:
         log.error(f'Unrecognized dataset: {args.data}')
         exit(1)

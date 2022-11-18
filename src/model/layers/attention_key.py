@@ -42,9 +42,9 @@ class Attention(nn.MultiheadAttention):
                 attn_mask=attn_mask)
 
         if self.batch_first and is_batched:
-            return attn_output.transpose(1, 0), attn_output_weights, k
+            return attn_output.transpose(1, 0), attn_output_weights, k, q, v
         else:
-            return attn_output, attn_output_weights, k
+            return attn_output, attn_output_weights, k, q, v
 
 
 def multi_head_attention_forward(
