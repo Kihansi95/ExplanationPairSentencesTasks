@@ -119,6 +119,7 @@ def parse_argument(prog: str = __name__, description: str = 'Train LSTM-based at
 	parser.add_argument('--lambda_lagrange', type=float, default=0., help='multiplier for relaxation of Lagrange (Supervision by entropy)')
 	
 	params = parser.parse_args()
+	params.shuffle = not params.shuffle_off
 	print('=== Parameters ===')
 	print(json.dumps(vars(params), indent=4))
 	

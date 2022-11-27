@@ -1,21 +1,36 @@
-#!/bin/bash
-#
-#SBATCH --job-name=lstm_attention_esnli
-#SBATCH --output=%j.out.log # output file (%j = job ID)
-#SBATCH --error=%j.err.log # error file (%j = job ID)
+#!/usr/bin/env bash
+#SBATCH --job-name=mlp_attention
+#SBATCH --output=/gpfswork/rech/tme/.../JZLOGS/%j.out.log # output file (%j = job ID)
+#SBATCH --error=/gpfswork/rech/tme/.../JZLOGS/%j.err.log # error file (%j = job ID)
 #SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user=duc-hau.nguyen@irisa.fr
-#SBATCH --time=2:00:00
-#SBATCH --qos=qos_gpu-dev
+#SBATCH --nodes=1             # reserve 1 node
+#SBATCH --ntasks=4            # reserve 4 tasks (or processes)
+#SBATCH --cpus-per-task=10    # reserve 10 CPUs per task (and associated memory)
+#SBATCH --hint=nomultithread
+#SBATCH --qos=qos_gpu-t3
+#SBATCH --time=20:00:00
 #SBATCH -C v100-32g
-#SBATCH --gres=gpu:6
-
+#SBATCH --gres=gpu:4
+source ~/.bashrc
 conda activate cuda113
-EXEC_FILE=src/lstm_attention.py
+EXEC_FILE=src/mlp_attention.py
 echo
 echo =============== RUN ${OAR_JOB_ID} ===============
 echo Run $EXEC_FILE at `date +"%T, %d-%m-%Y"`
 
-python $EXEC_FILE -o $RUNDIR -b 1024 -e 50 --vectors glove.840B.300d -m exp --name lstm_attention_esnli --data esnli --lambda_supervise 0.0 --n_lstm 1 --version run=0_lstm=1_lsup=0.0 --strategy ddp
+srun python $EXEC_FILE -o $RUNDIR \
+                      --vectors glove.840B.300d \
+                      --devices $SLURM_GPUS_ON_NODE \
+                      --num_nodes $SLURM_NNODES \
+                      --mode exp \
+                      --batch_size 512 \
+                      --epoch 50 \
+                      --n_kernel 1 \
+                      --concat_context \
+                      --name $SLURM_JOB_NAME \
+                      --version yelphat50/run=0_ncontext=1_concat=1 \
+                      --data yelphat50 \
+                      --strategy ddp_find_off
 
 echo Done

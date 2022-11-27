@@ -95,6 +95,7 @@ def parse_argument(prog: str = __name__, description: str = 'Train LSTM-based at
 	# Data configuration
 	parser.add_argument('--n_data', '-n', type=int, default=-1, help='Maximum data number for train+val+test, -1 if full dataset. Default: -1')
 	parser.add_argument('--data', '-d', type=str, help='Choose dataset to train model')
+	parser.add_argument('--shuffle_off', action='store_true', help='Turn off shuffle in training cycle. Used for debug large dataset.')
 	
 	# Fit configuration
 	parser.add_argument('--resume', action='store_true', help='Resume training from the last checkpoint if there is')
@@ -115,6 +116,7 @@ def parse_argument(prog: str = __name__, description: str = 'Train LSTM-based at
 	parser.add_argument('--lambda_lagrange', type=float, default=0., help='multiplier for relaxation of Lagrange (Supervision by entropy)')
 	
 	params = parser.parse_args()
+	params.shuffle = not params.shuffle_off
 	print('=== Parameters ===')
 	print(json.dumps(vars(params), indent=4))
 	
@@ -152,11 +154,11 @@ if __name__ == '__main__':
 	if args.resume:
 		log.warn('Resume from previous training')
 	
-	# Carbon tracking
 	dm_kwargs = dict(cache_path=DATA_CACHE,
 	                 batch_size=args.batch_size,
 	                 num_workers=args.num_workers,
-	                 n_data=args.n_data)
+	                 n_data=args.n_data,
+	                 shuffle=args.shuffle)
 	
 	if args.data == 'hatexplain':
 		from data_module.hatexplain import HateXPlainDM
@@ -233,7 +235,7 @@ if __name__ == '__main__':
 		detect_anomaly=args.detect_anomaly, # deactivate on large scale experiemnt
 		benchmark=False,    # benchmark = False better time in NLP
 		devices=args.devices,
-		num_nodes=args.num_nodes
+		num_nodes=args.num_nodes,
 	)
 	
 	# Set up output path
