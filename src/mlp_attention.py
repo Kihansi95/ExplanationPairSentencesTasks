@@ -2,11 +2,11 @@ import os
 from os import path
 import json
 from argparse import ArgumentParser
-from codecarbon import EmissionsTracker
+from codecarbon import EmissionsTracker, OfflineEmissionsTracker
 
 from model_module import DualEkeyLqueryModule, SingleEkeyLqueryModule
 from modules import report_score
-from modules.const import InputType, Mode
+from modules.const import InputType, Mode, TrackCarbon
 from modules.logger import init_logging
 from modules.logger import log
 
@@ -32,6 +32,27 @@ def get_num_workers() -> int:
 	num_workers = os.cpu_count()
 	return num_workers if num_workers is not None else 0
 
+
+def get_carbon_tracker(args) -> EmissionsTracker:
+	if args.track_carbon is None:
+		return None
+	
+	if args.track_carbon == TrackCarbon.ONLINE:
+		tracker = EmissionsTracker(
+			project_name=f'{args.name}/{args.version}',
+			output_dir=logger.log_dir,
+			log_level='critical'
+		)
+	elif args.track_carbon == TrackCarbon.OFFLINE:
+		tracker = OfflineEmissionsTracker(
+			project_name=f'{args.name}/{args.version}',
+			output_dir=logger.log_dir,
+			log_level='critical',
+			country_iso_code='FRA'
+		)
+	
+	tracker.start()
+	return tracker
 
 def parse_argument(prog: str = __name__, description: str = 'Train LSTM-based attention') -> dict:
 	"""
@@ -227,13 +248,7 @@ if __name__ == '__main__':
 		model = ModelModule.load_from_checkpoint(checkpoint_path=ckpt_path, hparams_file=hparams_path, **model_args)
 		
 	# Carbon tracking
-	if args.mode == Mode.EXP:
-		tracker = EmissionsTracker(
-			project_name=f'{args.name}/{args.version}',
-			output_dir=logger.log_dir,
-			log_level='critical'
-		)
-		tracker.start()
+	tracker = get_carbon_tracker(args)
 	
 	if args.train or args.test:
 		scores = trainer.test(model=model, datamodule=dm)
@@ -253,11 +268,9 @@ if __name__ == '__main__':
 			fp.write(predictions)
 			log.info(f'Predictions are saved at {predict_path}')
 	
-	if args.mode == Mode.EXP:
+	if tracker is not None:
 		emission = tracker.stop()
 		emission_str = f'Total emission in experiment trial: {emission} kgs'
 		log.info(emission_str)
-			
-	if args.morpho_filter:
-		raise Exception('Not yet implemented')
+	
 		

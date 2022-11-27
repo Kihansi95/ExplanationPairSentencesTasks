@@ -86,4 +86,6 @@ def init_logging(color: bool = True, cache_path: str = None, level=logging.DEBUG
         
     handler.setFormatter(ColorFormatter(color=color))
     log.addHandler(handler)
-    log.disabled = os.getenv("LOCAL_RANK", '0') != '0' # In case multithreading: disable on child process
+    
+    local_rank = os.getenv("LOCAL_RANK", '0')
+    log.disabled = local_rank != '0' # In case multithreading: disable on child process

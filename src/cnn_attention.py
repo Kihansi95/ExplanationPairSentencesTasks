@@ -2,11 +2,11 @@ import os
 from os import path
 import json
 from argparse import ArgumentParser
-from codecarbon import EmissionsTracker
+from codecarbon import EmissionsTracker, OfflineEmissionsTracker
 
 from model_module import SingleCNNAttentionModule, DualCNNAttentionModule
 from modules import report_score
-from modules.const import InputType, Mode, ContextType
+from modules.const import *
 from modules.logger import init_logging
 from modules.logger import log
 
@@ -33,6 +33,27 @@ def get_num_workers() -> int:
 	return num_workers if num_workers is not None else 0
 
 
+def get_carbon_tracker(args) -> EmissionsTracker:
+	if args.track_carbon is None:
+		return None
+	
+	if args.track_carbon == TrackCarbon.ONLINE:
+		tracker = EmissionsTracker(
+			project_name=f'{args.name}/{args.version}',
+			output_dir=logger.log_dir,
+			log_level='critical'
+		)
+	elif args.track_carbon == TrackCarbon.OFFLINE:
+		tracker = OfflineEmissionsTracker(
+			project_name=f'{args.name}/{args.version}',
+			output_dir=logger.log_dir,
+			log_level='critical',
+			country_iso_code='FRA'
+		)
+	
+	tracker.start()
+	return tracker
+
 def parse_argument(prog: str = __name__, description: str = 'Train LSTM-based attention') -> dict:
 	"""
 	Parse arguments passed to the script.
@@ -47,6 +68,7 @@ def parse_argument(prog: str = __name__, description: str = 'Train LSTM-based at
 	# Optional stuff
 	parser.add_argument('--disable_log_color', action='store_true', help='Activate for console does not support coloring')
 	parser.add_argument('--OAR_ID', type=int, help='Get cluster ID to see error/output logs')
+	parser.add_argument('--track_carbon', type=str, help='If precised will track down carbon')
 	
 	# Trainer params
 	parser.add_argument('--cache', '-o', type=str, default=path.join(os.getcwd(), '..', '.cache'), help='Path to temporary directory to store output of training process')
@@ -61,6 +83,8 @@ def parse_argument(prog: str = __name__, description: str = 'Train LSTM-based at
 	parser.add_argument('--fast_dev_run', action='store_true')
 	parser.add_argument('--detect_anomaly', action='store_true')
 	parser.add_argument('--track_grad_norm', type=int, default=-1)
+	parser.add_argument('--devices', type=int)
+	parser.add_argument('--num_nodes', type=int)
 	
 	# Model configuration
 	parser.add_argument('--vectors', type=str, help='Pretrained vectors. See more in torchtext Vocab, example: glove.840B.300d')
@@ -74,6 +98,7 @@ def parse_argument(prog: str = __name__, description: str = 'Train LSTM-based at
 	# Data configuration
 	parser.add_argument('--n_data', '-n', type=int, default=-1, help='Maximum data number for train+val+test, -1 if full dataset. Default: -1')
 	parser.add_argument('--data', '-d', type=str, help='Choose dataset to train model')
+	parser.add_argument('--shuffle_off', action='store_true', help='Turn off shuffle in training cycle. Used for debug large dataset.')
 	
 	# Fit configuration
 	parser.add_argument('--resume', action='store_true', help='Resume training from the last checkpoint if there is')
@@ -85,7 +110,6 @@ def parse_argument(prog: str = __name__, description: str = 'Train LSTM-based at
 	parser.add_argument('--train', action='store_true')
 	parser.add_argument('--test', action='store_true')
 	parser.add_argument('--predict', action='store_true')
-	parser.add_argument('--morpho_filter', action='store_true')
 	
 	
 	# Regularizer
@@ -99,6 +123,12 @@ def parse_argument(prog: str = __name__, description: str = 'Train LSTM-based at
 	print(json.dumps(vars(params), indent=4))
 	
 	params.mode = params.mode.lower()
+	if params.strategy == 'ddp_find_off':
+		from pytorch_lightning.strategies import DDPStrategy
+		params.strategy = DDPStrategy(find_unused_parameters=False)
+	elif params.strategy == 'ddp_spawn_find_off':
+		from pytorch_lightning.strategies import DDPSpawnStrategy
+		params.strategy = DDPSpawnStrategy(find_unused_parameters=False)
 	return params
 
 if __name__ == '__main__':
@@ -128,22 +158,23 @@ if __name__ == '__main__':
 	dm_kwargs = dict(cache_path=DATA_CACHE,
 	                 batch_size=args.batch_size,
 	                 num_workers=args.num_workers,
-	                 n_data=args.n_data)
+	                 n_data=args.n_data,
+	                 shuffle=args.shuffle)
 	
 	if args.data == 'hatexplain':
 		from data_module.hatexplain import HateXPlainDM
 		dm = HateXPlainDM(**dm_kwargs)
 	elif args.data == 'yelphat':
-		from data_module.yelp_hat import *
+		from data_module.yelp_hat import YelpHatDM
 		dm = YelpHatDM(**dm_kwargs)
 	elif args.data == 'yelphat50':
-		from data_module.yelp_hat import *
+		from data_module.yelp_hat import YelpHat50DM
 		dm = YelpHat50DM(**dm_kwargs)
 	elif args.data == 'yelphat100':
-		from data_module.yelp_hat import *
+		from data_module.yelp_hat import YelpHat100DM
 		dm = YelpHat100DM(**dm_kwargs)
 	elif args.data == 'yelphat200':
-		from data_module.yelp_hat import *
+		from data_module.yelp_hat import YelpHat200DM
 		dm = YelpHat200DM(**dm_kwargs)
 	elif args.data == 'esnli':
 		from data_module.esnli import ESNLIDM
@@ -205,6 +236,8 @@ if __name__ == '__main__':
 		track_grad_norm=args.track_grad_norm, # track_grad_norm=2 for debugging
 		detect_anomaly=args.detect_anomaly, # deactivate on large scale experiemnt
 		benchmark=False,    # benchmark = False better time in NLP
+		devices=args.devices,
+		num_nodes=args.num_nodes,
 	)
 	
 	# Set up output path
@@ -227,6 +260,9 @@ if __name__ == '__main__':
 	
 	else:
 		model = ModelModule.load_from_checkpoint(checkpoint_path=ckpt_path, hparams_file=hparams_path, **model_args)
+		
+	# Carbon tracking
+	tracker = get_carbon_tracker(args)
 	
 	if args.train or args.test:
 		scores = trainer.test(model=model, datamodule=dm)
@@ -239,19 +275,11 @@ if __name__ == '__main__':
 			datamodule=dm
 		)
 		
-		log.warn('Prediction incompleted')
-		predict_path = path.join(logger.log_dir, f'predict.txt')
-		
-		with open(predict_path, 'w') as fp:
-			fp.write(predictions)
-			log.info(f'Predictions are saved at {predict_path}')
+		log.warning('Prediction incompleted')
 	
-	if args.mode == Mode.EXP:
+	if tracker is not None:
 		emission = tracker.stop()
 		emission_str = f'Total emission in experiment trial: {emission} kgs'
 		log.info(emission_str)
-		print(emission_str)
-			
-	if args.morpho_filter:
-		raise Exception('Not yet implemented')
+		
 		

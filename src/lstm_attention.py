@@ -2,10 +2,10 @@ import os
 from os import path
 import json
 from argparse import ArgumentParser
-from codecarbon import EmissionsTracker
+from codecarbon import EmissionsTracker, OfflineEmissionsTracker
 
 from modules import report_score
-from modules.const import InputType, Mode
+from modules.const import *
 from modules.logger import init_logging
 from modules.logger import log
 
@@ -13,7 +13,7 @@ import pytorch_lightning as pl
 from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning import callbacks as cb
 
-from model_module import DualLSTMAttentionModule, SingleLSTMAttentionModule
+from model_module import *
 
 def get_num_workers() -> int:
 	"""
@@ -33,6 +33,27 @@ def get_num_workers() -> int:
 	num_workers = os.cpu_count()
 	return num_workers if num_workers is not None else 0
 
+def get_carbon_tracker(args) -> EmissionsTracker:
+	
+	if args.track_carbon is None:
+		return None
+	
+	if args.track_carbon == TrackCarbon.ONLINE:
+		tracker = EmissionsTracker(
+			project_name=f'{args.name}/{args.version}',
+			output_dir=logger.log_dir,
+			log_level='critical'
+		)
+	elif args.track_carbon == TrackCarbon.OFFLINE:
+		tracker = OfflineEmissionsTracker(
+			project_name=f'{args.name}/{args.version}',
+			output_dir=logger.log_dir,
+			log_level='critical',
+			country_iso_code='FRA'
+		)
+		
+	tracker.start()
+	return tracker
 
 def parse_argument(prog: str = __name__, description: str = 'Train LSTM-based attention') -> dict:
 	"""
@@ -48,6 +69,7 @@ def parse_argument(prog: str = __name__, description: str = 'Train LSTM-based at
 	# Optional stuff
 	parser.add_argument('--disable_log_color', action='store_true', help='Activate for console does not support coloring')
 	parser.add_argument('--OAR_ID', type=int, help='Get cluster ID to see error/output logs')
+	parser.add_argument('--track_carbon', type=str, help='If precised will track down carbon')
 	
 	# Trainer params
 	parser.add_argument('--cache', '-o', type=str, default=path.join(os.getcwd(), '..', '.cache'), help='Path to temporary directory to store output of training process')
@@ -74,7 +96,7 @@ def parse_argument(prog: str = __name__, description: str = 'Train LSTM-based at
 	
 	# Data configuration
 	parser.add_argument('--n_data', '-n', type=int, default=-1, help='Maximum data number for train+val+test, -1 if full dataset. Default: -1')
-	parser.add_argument('--data', '-d', type=str, help=f'Choose dataset to train model, possible choice: esnli, hatexplain, yelphat')
+	parser.add_argument('--data', '-d', choices=Data.list(), type=str, help=f'Choose dataset to train model, possible choice: esnli, hatexplain, yelphat')
 	parser.add_argument('--shuffle_off', action='store_true', help='Turn off shuffle in training cycle. Used for debug large dataset.')
 	
 	# Fit configuration
@@ -87,7 +109,6 @@ def parse_argument(prog: str = __name__, description: str = 'Train LSTM-based at
 	parser.add_argument('--train', action='store_true')
 	parser.add_argument('--test', action='store_true')
 	parser.add_argument('--predict', action='store_true')
-	parser.add_argument('--morpho_filter', action='store_true')
 	
 	# Regularizer
 	parser.add_argument('--lambda_entropy', type=float, default=0., help='multiplier for entropy')
@@ -108,6 +129,7 @@ def parse_argument(prog: str = __name__, description: str = 'Train LSTM-based at
 		from pytorch_lightning.strategies import DDPSpawnStrategy
 		params.strategy = DDPSpawnStrategy(find_unused_parameters=False)
 	return params
+
 
 if __name__ == '__main__':
 	
@@ -131,7 +153,7 @@ if __name__ == '__main__':
 		
 	log.info(f'experimentation_name = {args.name}')
 	if args.resume:
-		log.warn('Resume from previous training')
+		log.warning('Resume from previous training')
 	
 	# Init data module
 	dm_kwargs = dict(cache_path=DATA_CACHE,
@@ -230,13 +252,7 @@ if __name__ == '__main__':
 		model = ModelModule.load_from_checkpoint(checkpoint_path=ckpt_path, hparams_file=hparams_path, **model_args)
 		
 	# Carbon tracking
-	if args.mode == Mode.EXP:
-		tracker = EmissionsTracker(
-			project_name=f'{args.name}/{args.version}',
-			output_dir=logger.log_dir,
-			log_level='critical'
-		)
-		tracker.start()
+	tracker = get_carbon_tracker(args)
 	
 	if args.train or args.test:
 		scores = trainer.test(model=model, datamodule=dm)
@@ -249,18 +265,16 @@ if __name__ == '__main__':
 			datamodule=dm
 		)
 		
-		log.warn('Prediction incompleted')
-		predict_path = path.join(logger.log_dir, f'predict.txt')
+		log.warning('Prediction incompleted')
 		
-		with open(predict_path, 'w') as fp:
-			fp.write(predictions)
-			log.info(f'Predictions are saved at {predict_path}')
+		#predict_path = path.join(logger.log_dir, f'predict.txt')
+		
+		#with open(predict_path, 'w') as fp:
+		#	fp.write(predictions)
+		#	log.info(f'Predictions are saved at {predict_path}')
 	
-	if args.mode == Mode.EXP:
+	if tracker is not None:
 		emission = tracker.stop()
 		emission_str = f'Total emission in experiment trial: {emission} kgs'
 		log.info(emission_str)
-			
-	if args.morpho_filter:
-		raise Exception('Not yet implemented')
 		

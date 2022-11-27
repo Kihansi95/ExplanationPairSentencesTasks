@@ -225,7 +225,7 @@ class DualEkeyLqueryModule(pl.LightningModule):
 			# if not in test stage, log loss metrics
 			loss_names = [k for k in outputs.keys() if 'loss' in k]
 			for loss_metric in loss_names:
-				self.log(f'{stage}/{loss_metric}', outputs[loss_metric], prog_bar=True)
+				self.log(f'{stage}/{loss_metric}', outputs[loss_metric], prog_bar=True, sync_dist=True)
 
 
 	def training_step_end(self, outputs):
