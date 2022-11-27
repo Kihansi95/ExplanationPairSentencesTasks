@@ -115,8 +115,8 @@ class PureAttention(nn.Module):
 
             # NORM
             m = torch.mean(x, dim=-1).unsqueeze(dim=-1).repeat(1, 1, x.shape[-1])
-            v = torch.var(x, dim=-1).unsqueeze(dim=-1).repeat(1, 1, x.shape[-1])
-            x = (x - m) / torch.sqrt(v)
+            sd = torch.sqrt(torch.var(x, dim=-1).unsqueeze(dim=-1).repeat(1, 1, x.shape[-1]))
+            x = (x - m) / sd
 
             # the embedding and the attention
             hidden_states.append(x)
