@@ -74,7 +74,7 @@ class YelpHatDM(pl.LightningDataModule):
 			self.vocab = vocab
 			
 		else:
-			self.vocab = torch.load(self.vocab_path, pickle_module=pickle5)
+			self.vocab = torch.load(self.vocab_path)
 			log.info(f'Loaded vocab at {self.vocab_path}')
 		
 		log.info(f'Vocab size: {len(self.vocab)}')
@@ -229,7 +229,7 @@ class CLSTokenYelpHatDM(YelpHatDM):
 			if env.disable_tqdm: log.info(f'Vocab CLS is saved at {self.vocab_path}')
 		
 		else:
-			self.vocab = torch.load(self.vocab_path, pickle_module=pickle5)
+			self.vocab = torch.load(self.vocab_path)
 			log.info(f'Loaded vocab CLS at {self.vocab_path}')
 		
 		log.info(f'Vocab size: {len(self.vocab)}')

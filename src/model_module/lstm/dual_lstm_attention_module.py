@@ -78,8 +78,8 @@ class DualLSTMAttentionModule(pl.LightningModule):
 			template_attention_metrics = m.MetricCollection({
 				'a:AUROC': m.AUROC(average='micro'),
 				'a:AUPRC': m.AveragePrecision(average='micro'),
-				'a:AURecall': metrics.AURecall(),
-				'a:AUPrecision': metrics.AUPrecision(),
+				'a:Recall': metrics.AURecall(),
+				'a:Precision': metrics.AUPrecision(),
 				'a:Jaccard': metrics.PowerJaccard(),
 				'a:Specificity': m.Specificity(),
 				'a:Dice': m.Dice(),

@@ -51,6 +51,10 @@ class DualLstmAttention(Net):
 		d_concat = 2 * d_context
 		
 		d_fc_out = kwargs.get('d_fc_out', d_context)
+		
+		self.concat_context = kwargs.get('concat_context', True)  # concatenate by default, to be compatible with other script
+		
+		
 		self.fc_squeeze = FullyConnected(d_concat, d_fc_out, activation=activation, dropout=dropout)
 		
 		n_fc_out = kwargs.get('n_fc_out', 0)

@@ -5,6 +5,7 @@ from argparse import ArgumentParser
 from typing import Union
 import json
 
+from codecarbon import EmissionsTracker, OfflineEmissionsTracker
 from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning import callbacks as cb
 
@@ -16,7 +17,7 @@ import torchmetrics as m
 from data_module.hatexplain import CLSTokenHateXPlainDM
 from data_module.yelp_hat import *
 from data_module.esnli import CLSTokenESNLIDM
-from modules.const import SpecToken, Mode
+from modules.const import SpecToken, Mode, TrackCarbon
 
 from modules.logger import log, init_logging
 from modules import metrics, env, rescale, INF
@@ -332,6 +333,27 @@ def get_num_workers() -> int:
     return num_workers if num_workers is not None else 0
 
 
+def get_carbon_tracker(args) -> EmissionsTracker:
+    if args.track_carbon is None:
+        return None
+    
+    if args.track_carbon == TrackCarbon.ONLINE:
+        tracker = EmissionsTracker(
+            project_name=f'{args.name}/{args.version}',
+            output_dir=logger.log_dir,
+            log_level='critical'
+        )
+    elif args.track_carbon == TrackCarbon.OFFLINE:
+        tracker = OfflineEmissionsTracker(
+            project_name=f'{args.name}/{args.version}',
+            output_dir=logger.log_dir,
+            log_level='critical',
+            country_iso_code='FRA'
+        )
+    
+    tracker.start()
+    return tracker
+
 def parse_argument(prog: str = __name__, description: str = 'Experimentation on NLP') -> dict:
     """
     Parse arguments passed to the script.
@@ -430,8 +452,7 @@ if __name__ == '__main__':
     dm_kwargs = dict(cache_path=DATA_CACHE,
                      batch_size=args.batch_size,
                      num_workers=args.num_workers,
-                     n_data=args.n_data,
-                     pur_attention=True)
+                     n_data=args.n_data)
 
     if args.data == 'hatexplain':
         dm = CLSTokenHateXPlainDM(**dm_kwargs)
@@ -510,9 +531,11 @@ if __name__ == '__main__':
     if args.train:
         model = AttitModel(**model_args)
         trainer.fit(model, datamodule=dm, ckpt_path=ckpt_path if args.resume else None)
-
     else:
         model = AttitModel.load_from_checkpoint(checkpoint_path=ckpt_path, hparams_file=hparams_path, **model_args)
+
+    # Carbon tracking
+    tracker = get_carbon_tracker(args)
 
     if args.train or args.test:
 
@@ -535,3 +558,8 @@ if __name__ == '__main__':
             with open(score_path, 'w') as fp:
                 json.dump(score, fp, indent='\t')
                 log.info(f'Score is saved at {score_path}')
+
+    if tracker is not None:
+        emission = tracker.stop()
+        emission_str = f'Total emission in experiment trial: {emission} kgs'
+        log.info(emission_str)
