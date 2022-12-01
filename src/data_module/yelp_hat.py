@@ -1,5 +1,4 @@
 import pickle
-import pickle5
 import sys
 
 import pytorch_lightning as pl

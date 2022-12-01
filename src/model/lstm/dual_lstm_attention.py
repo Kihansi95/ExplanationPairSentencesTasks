@@ -38,8 +38,7 @@ class DualLstmAttention(Net):
 		d_in_lstm = d_embedding
 		d_hidden_lstm = kwargs.get('d_hidden_lstm', d_in_lstm)
 		n_lstm = kwargs.get('n_lstm', 1)
-		self.lstm = nn.LSTM(input_size=d_in_lstm, hidden_size=d_hidden_lstm, num_layers=n_lstm, batch_first=True,
-		                    bidirectional=True, dropout=(n_lstm > 1) * dropout)
+		self.lstm = nn.LSTM(input_size=d_in_lstm, hidden_size=d_hidden_lstm, num_layers=n_lstm, batch_first=True, bidirectional=True, dropout=(n_lstm > 1) * dropout)
 		
 		# Bidirectional
 		if self.bidirectional: d_hidden_lstm *= 2

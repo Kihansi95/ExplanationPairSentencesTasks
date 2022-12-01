@@ -2,11 +2,11 @@ import os
 from os import path
 import json
 from argparse import ArgumentParser
-from codecarbon import EmissionsTracker
+from codecarbon import EmissionsTracker, OfflineEmissionsTracker
 
 from model_module import DualEkeyLqueryModule, SingleEkeyLqueryModule
 from modules import report_score
-from modules.const import InputType, Mode
+from modules.const import InputType, Mode, TrackCarbon
 from modules.logger import init_logging
 from modules.logger import log
 
@@ -32,6 +32,27 @@ def get_num_workers() -> int:
 	num_workers = os.cpu_count()
 	return num_workers if num_workers is not None else 0
 
+
+def get_carbon_tracker(args) -> EmissionsTracker:
+	if args.track_carbon is None:
+		return None
+	
+	if args.track_carbon == TrackCarbon.ONLINE:
+		tracker = EmissionsTracker(
+			project_name=f'{args.name}/{args.version}',
+			output_dir=logger.log_dir,
+			log_level='critical'
+		)
+	elif args.track_carbon == TrackCarbon.OFFLINE:
+		tracker = OfflineEmissionsTracker(
+			project_name=f'{args.name}/{args.version}',
+			output_dir=logger.log_dir,
+			log_level='critical',
+			country_iso_code='FRA'
+		)
+	
+	tracker.start()
+	return tracker
 
 def parse_argument(prog: str = __name__, description: str = 'Train LSTM-based attention') -> dict:
 	"""
@@ -61,6 +82,8 @@ def parse_argument(prog: str = __name__, description: str = 'Train LSTM-based at
 	parser.add_argument('--fast_dev_run', action='store_true')
 	parser.add_argument('--detect_anomaly', action='store_true')
 	parser.add_argument('--track_grad_norm', type=int, default=-1)
+	parser.add_argument('--devices', type=int, help='Precise number of GPU available if the environment allows')
+	parser.add_argument('--num_nodes', type=int, help='Precise number of node if the environment allows')
 	
 	# Model configuration
 	parser.add_argument('--vectors', type=str, help='Pretrained vectors. See more in torchtext Vocab, example: glove.840B.300d')
@@ -72,6 +95,7 @@ def parse_argument(prog: str = __name__, description: str = 'Train LSTM-based at
 	# Data configuration
 	parser.add_argument('--n_data', '-n', type=int, default=-1, help='Maximum data number for train+val+test, -1 if full dataset. Default: -1')
 	parser.add_argument('--data', '-d', type=str, help='Choose dataset to train model')
+	parser.add_argument('--shuffle_off', action='store_true', help='Turn off shuffle in training cycle. Used for debug large dataset.')
 	
 	# Fit configuration
 	parser.add_argument('--resume', action='store_true', help='Resume training from the last checkpoint if there is')
@@ -85,7 +109,6 @@ def parse_argument(prog: str = __name__, description: str = 'Train LSTM-based at
 	parser.add_argument('--predict', action='store_true')
 	parser.add_argument('--morpho_filter', action='store_true')
 	
-	
 	# Regularizer
 	parser.add_argument('--lambda_entropy', type=float, default=0., help='multiplier for entropy')
 	parser.add_argument('--lambda_supervise', type=float, default=0., help='multiplier for supervise loss')
@@ -93,6 +116,7 @@ def parse_argument(prog: str = __name__, description: str = 'Train LSTM-based at
 	parser.add_argument('--lambda_lagrange', type=float, default=0., help='multiplier for relaxation of Lagrange (Supervision by entropy)')
 	
 	params = parser.parse_args()
+	params.shuffle = not params.shuffle_off
 	print('=== Parameters ===')
 	print(json.dumps(vars(params), indent=4))
 	
@@ -130,11 +154,11 @@ if __name__ == '__main__':
 	if args.resume:
 		log.warn('Resume from previous training')
 	
-	# Carbon tracking
 	dm_kwargs = dict(cache_path=DATA_CACHE,
 	                 batch_size=args.batch_size,
 	                 num_workers=args.num_workers,
-	                 n_data=args.n_data)
+	                 n_data=args.n_data,
+	                 shuffle=args.shuffle)
 	
 	if args.data == 'hatexplain':
 		from data_module.hatexplain import HateXPlainDM
@@ -210,6 +234,8 @@ if __name__ == '__main__':
 		track_grad_norm=args.track_grad_norm, # track_grad_norm=2 for debugging
 		detect_anomaly=args.detect_anomaly, # deactivate on large scale experiemnt
 		benchmark=False,    # benchmark = False better time in NLP
+		devices=args.devices,
+		num_nodes=args.num_nodes,
 	)
 	
 	# Set up output path
@@ -224,13 +250,7 @@ if __name__ == '__main__':
 		model = ModelModule.load_from_checkpoint(checkpoint_path=ckpt_path, hparams_file=hparams_path, **model_args)
 		
 	# Carbon tracking
-	if args.mode == Mode.EXP:
-		tracker = EmissionsTracker(
-			project_name=f'{args.name}/{args.version}',
-			output_dir=logger.log_dir,
-			log_level='critical'
-		)
-		tracker.start()
+	tracker = get_carbon_tracker(args)
 	
 	if args.train or args.test:
 		scores = trainer.test(model=model, datamodule=dm)
@@ -250,11 +270,9 @@ if __name__ == '__main__':
 			fp.write(predictions)
 			log.info(f'Predictions are saved at {predict_path}')
 	
-	if args.mode == Mode.EXP:
+	if tracker is not None:
 		emission = tracker.stop()
 		emission_str = f'Total emission in experiment trial: {emission} kgs'
 		log.info(emission_str)
-			
-	if args.morpho_filter:
-		raise Exception('Not yet implemented')
+	
 		

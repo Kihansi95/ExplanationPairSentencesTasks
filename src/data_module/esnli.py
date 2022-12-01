@@ -126,7 +126,7 @@ class ESNLIDM(pl.LightningDataModule):
             self.train_set = PretransformedESNLI(split='train', **dataset_kwargs)
             self.val_set = PretransformedESNLI(split='val', **dataset_kwargs)
 
-        if stage == 'test' or stage is None:
+        if stage == 'test' or stage == 'predict' or stage is None:
             self.test_set = PretransformedESNLI(split='test', **dataset_kwargs)
 
     def train_dataloader(self):
@@ -138,21 +138,24 @@ class ESNLIDM(pl.LightningDataModule):
     def test_dataloader(self):
         return DataLoader(self.test_set, batch_size=self.batch_size, shuffle=False, collate_fn=self.collate, num_workers=self.num_workers)
 
+    def predict_dataloader(self):
+        return self.test_dataloader()
+
     ## ======= PRIVATE SECTIONS ======= ##
 
     def collate(self, batch):
         # prepare batch of data for dataloader
-        batch = self.list2dict(batch)
+        b = self.list2dict(batch)
 
-        b = {
-            'premise_ids': self.text_transform(batch['premise_tokens']),
-            'hypothesis_ids': self.text_transform(batch['hypothesis_tokens']),
+        b.update({
+            'premise_ids': self.text_transform(b['premise_tokens']),
+            'hypothesis_ids': self.text_transform(b['hypothesis_tokens']),
             'a_true': {
-                'premise': self.rationale_transform(batch['premise_rationale']),
-                'hypothesis': self.rationale_transform(batch['hypothesis_rationale']),
+                'premise': self.rationale_transform(b['premise_rationale']),
+                'hypothesis': self.rationale_transform(b['hypothesis_rationale']),
             },
-            'y_true': self.label_transform(batch['label'])
-        }
+            'y_true': self.label_transform(b['label'])
+        })
 
         b['padding_mask'] = {
             'premise': b['premise_ids'] == self.vocab[SpecToken.PAD],

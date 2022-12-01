@@ -10,6 +10,11 @@ class ExtendedEnum(Enum):
 class Mode(str, ExtendedEnum):
 	EXP = 'exp'
 	DEV = 'dev'
+	
+# Track carbon mode
+class TrackCarbon(str, ExtendedEnum):
+	OFFLINE = 'offline'
+	ONLINE = 'online'
 
 # Data configuration constant
 class InputType(ExtendedEnum):

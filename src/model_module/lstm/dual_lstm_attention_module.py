@@ -5,6 +5,7 @@ from typing import Union
 
 from os import path
 
+import pandas as pd
 import pytorch_lightning as pl
 import torch
 
@@ -34,6 +35,7 @@ class DualLSTMAttentionModule(pl.LightningModule):
 	             n_lstm=1,
 	             **kwargs):
 		super(DualLSTMAttentionModule, self).__init__()
+		self.cache_path = cache_path
 		
 		# log hyperparameters into hparams.yaml
 		self.save_hyperparameters('data', 'n_lstm', 'lambda_entropy', 'lambda_supervise', 'lambda_lagrange', 'lambda_heuristic')
@@ -182,6 +184,15 @@ class DualLSTMAttentionModule(pl.LightningModule):
 			premise_padding=padding_mask['premise'],
 			hypothesis_padding=padding_mask['hypothesis'])
 		
+		pd.DataFrame({
+			'premise_tokens': batch['premise_tokens'],
+			'hypothesis_tokens': batch['hypothesis_tokens'],
+			'y_hat': y_hat.numpy().tolist(),
+			'premise_attention': a_hat['premise'].numpy().tolist(),
+			'hypothesis_attention': a_hat['hypothesis'].numpy().tolist(),
+		}).to_csv(path.join(self.cache_path, 'prediction.csv'), mode='a', index=False, header=False)
+		log.info(f'Write to {path.join(self.cache_path, "prediction.csv")}')
+		
 		return {'y_hat': y_hat.argmax(axis=-1),
 		        'a_hat': a_hat,
 		        'padding_mask': padding_mask}
@@ -215,7 +226,7 @@ class DualLSTMAttentionModule(pl.LightningModule):
 			# if not in test stage, log loss metrics
 			loss_names = [k for k in outputs.keys() if 'loss' in k]
 			for loss_metric in loss_names:
-				self.log(f'{stage}/{loss_metric}', outputs[loss_metric], prog_bar=True)
+				self.log(f'{stage}/{loss_metric}', outputs[loss_metric], prog_bar=True, sync_dist=True)
 	
 	def training_step_end(self, outputs):
 		return self.step_end(outputs, stage='TRAIN')

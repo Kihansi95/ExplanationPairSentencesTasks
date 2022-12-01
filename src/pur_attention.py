@@ -106,6 +106,9 @@ class AttitModel(pl.LightningModule):
         })
 
     def forward(self, ids, mask):
+        # log.debug('='*5 +'Input tokens in model:' + '='*5)
+        # for tokens in ids:
+        #     log.debug(self.vocab.lookup_tokens(tokens.tolist()))
         return self.model(ids=ids, mask=mask)
 
     def configure_optimizers(self):
@@ -350,19 +353,14 @@ def parse_argument(prog: str = __name__, description: str = 'Experimentation on 
     parser = ArgumentParser(prog=prog, description=description)
 
     # Optional stuff
-    parser.add_argument('--disable_log_color', action='store_true',
-                        help='Activate for console does not support coloring')
+    parser.add_argument('--disable_log_color', action='store_true', help='Activate for console does not support coloring')
 
     # Training params
-    parser.add_argument('--cache', '-o', type=str, default=path.join(os.getcwd(), '..', '.cache'),
-                        help='Path to temporary directory to store output of training process')
-    parser.add_argument('--mode', '-m', type=str, default='dev',
-                        help='Choose among f[dev, exp]. "exp" will disable the progressbar')
+    parser.add_argument('--cache', '-o', type=str, default=path.join(os.getcwd(), '..', '.cache'), help='Path to temporary directory to store output of training process')
+    parser.add_argument('--mode', '-m', type=str, default='dev', help='Choose among f[dev, exp]. "exp" will disable the progressbar')
     parser.add_argument('--OAR_ID', type=int, help='Indicate whether we are in IGRIDA cluster mode')
-    parser.add_argument('--num_workers', type=int, default=get_num_workers(),
-                        help='Indicate whether we are in IGRIDA cluster mode. Default: Use all cpu cores.')
-    parser.add_argument('--accelerator', type=str, default='auto',
-                        help='Indicate whether we are in IGRIDA cluster mode. Default: Use all cpu cores.')
+    parser.add_argument('--num_workers', type=int, default=get_num_workers(), help='Indicate whether we are in IGRIDA cluster mode. Default: Use all cpu cores.')
+    parser.add_argument('--accelerator', type=str, default='auto', help='Indicate whether we are in IGRIDA cluster mode. Default: Use all cpu cores.')
     parser.add_argument('--name', type=str, help='Experimentation name. If not given, use model name instead.')
     parser.add_argument('--version', type=str, default='default_version', help='Experimentation version')
     parser.add_argument('--epoch', '-e', type=int, default=1, help='Number training epoch. Default: 1')
@@ -371,6 +369,8 @@ def parse_argument(prog: str = __name__, description: str = 'Experimentation on 
     parser.add_argument('--fast_dev_run', action='store_true')
     parser.add_argument('--detect_anomaly', action='store_true')
     parser.add_argument('--track_grad_norm', type=int, default=-1)
+    parser.add_argument('--devices', type=int, help='Precise number of GPU available if the environment allows')
+    parser.add_argument('--num_nodes', type=int, help='Precise number of node if the environment allows')
 
     # Model configuration
     parser.add_argument('--vectors', type=str, help='Pretrained vectors. See more in torchtext Vocab, example: glove.840B.300d')
@@ -398,15 +398,21 @@ def parse_argument(prog: str = __name__, description: str = 'Experimentation on 
     # Regularizer
     parser.add_argument('--lambda_entropy', type=float, default=0., help='multiplier for entropy')
     parser.add_argument('--lambda_supervise', type=float, default=0., help='multiplier for supervise')
-    parser.add_argument('--lambda_lagrange', type=float, default=0.,
-                        help='multiplier for relaxation of Lagrange (Supervision by entropy)')
+    parser.add_argument('--lambda_lagrange', type=float, default=0., help='multiplier for relaxation of Lagrange (Supervision by entropy)')
 
     params = parser.parse_args()
     print('=== Parameters ===')
     print(json.dumps(vars(params), indent=4))
 
     # If data not provided, automatically get from '<cache>/dataset'
+    # Customized arguments
     params.mode = params.mode.lower()
+    if params.strategy == 'ddp_find_off':
+        from pytorch_lightning.strategies import DDPStrategy
+        params.strategy = DDPStrategy(find_unused_parameters=False)
+    elif params.strategy == 'ddp_spawn_find_off':
+        from pytorch_lightning.strategies import DDPSpawnStrategy
+        params.strategy = DDPSpawnStrategy(find_unused_parameters=False)
     return params
 
 
@@ -495,6 +501,8 @@ if __name__ == '__main__':
         track_grad_norm=args.track_grad_norm,  # track_grad_norm=2 for debugging
         detect_anomaly=args.detect_anomaly,  # deactivate on large scale experiemnt
         benchmark=False,  # benchmark = False better time in NLP
+        devices=args.devices,
+        num_nodes=args.num_nodes
     )
     # Set up output path
     ckpt_path = path.join(logger.log_dir, 'checkpoints', 'best.ckpt')
