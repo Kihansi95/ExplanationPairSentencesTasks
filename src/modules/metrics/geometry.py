@@ -34,7 +34,7 @@ def cosine_sim(W: Tensor, padding_mask: Tensor, normalize: str = "mean") -> Tens
     dot_prod = torch.bmm(W, torch.transpose(W, 1, 2))
     v = torch.diagonal(dot_prod, offset=0, dim1=1, dim2=2).unsqueeze(-1)
     nms = torch.sqrt(torch.bmm(v, torch.transpose(v, 1, 2)))
-    s_mat = dot_prod / nms
+    s_mat = dot_prod / (nms + 1e-16)
 
     # >> get rid of the padding tokens
     buff = (~padding_mask).float().unsqueeze(1).repeat(1, T, 1)
@@ -59,7 +59,6 @@ def cosine_sim(W: Tensor, padding_mask: Tensor, normalize: str = "mean") -> Tens
 
 def effective_rank(W: Tensor):
     """ Effective rank calculus
-
 
     Args:
         W: Tensor. An embedding matrix
