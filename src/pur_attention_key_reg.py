@@ -56,7 +56,7 @@ class AttitModel(pl.LightningModule):
                                    num_heads=num_heads,
                                    num_layers=num_layers,
                                    padding_idx=vocab[SpecToken.PAD],
-                                   attention_raw=True,
+                                   attention_raw=False, # get the normalize attention
                                    n_class=num_class,
                                    d_embedding=kwargs['d_embedding'],
                                    freeze=freeze)
@@ -139,8 +139,9 @@ class AttitModel(pl.LightningModule):
         # ENTROPY
         entropy_mask = padding_mask.float().clone().detach().to(self.device)
         entropy_mask[:, 0] = 1.  # we don't take into account the CLS token
-        a_hat_entropy = metrics.entropy(a_hat, entropy_mask.bool(), normalize=True)
+        a_hat_entropy = metrics.entropy(a_hat, padding_mask, normalize=False) # no normalization here
         loss_entropy = a_hat_entropy.mean()  # mean of the entropy over a batch
+        #log.debug(f"loss_entropy_grad : {loss_entropy.requires_grad}")
 
         # Sigmoid for IoU loss
         flat_a_hat, flat_a_true = self.flatten_attention(a_hat=a_hat, a_true=a_true.int(), condition=y_true > 0,
@@ -430,8 +431,7 @@ if __name__ == '__main__':
     dm_kwargs = dict(cache_path=DATA_CACHE,
                      batch_size=args.batch_size,
                      num_workers=args.num_workers,
-                     n_data=args.n_data,
-                     pur_attention=True)
+                     n_data=args.n_data)
 
     if args.data == 'hatexplain':
         dm = CLSTokenHateXPlainDM(**dm_kwargs)
@@ -455,7 +455,6 @@ if __name__ == '__main__':
         cache_path=MODEL_CACHE,
         mode=args.mode,
         vocab=dm.vocab,
-        lambda_key_space=args.lambda_key,
         lambda_entropy=args.lambda_entropy,
         lambda_supervise=args.lambda_supervise,
         lambda_lagrange=args.lambda_lagrange,
