@@ -20,7 +20,7 @@ from data_module.esnli import CLSTokenESNLIDM
 from modules.const import SpecToken, Mode, TrackCarbon
 
 from modules.logger import log, init_logging
-from modules import metrics, env, rescale, INF
+from modules import metrics, rescale, INF
 
 from model.attention.pur_attention_key import PureAttention
 from modules.loss import IoU
@@ -368,13 +368,14 @@ def parse_argument(prog: str = __name__, description: str = 'Experimentation on 
     # Optional stuff
     parser.add_argument('--disable_log_color', action='store_true',
                         help='Activate for console does not support coloring')
+    parser.add_argument('--OAR_ID', type=int, help='Indicate whether we are in IGRIDA cluster mode')
+    parser.add_argument('--track_carbon', type=str, help='If precised will track down carbon')
 
     # Training params
     parser.add_argument('--cache', '-o', type=str, default=path.join(os.getcwd(), '..', '.cache'),
                         help='Path to temporary directory to store output of training process')
     parser.add_argument('--mode', '-m', type=str, default='dev',
                         help='Choose among f[dev, exp]. "exp" will disable the progressbar')
-    parser.add_argument('--OAR_ID', type=int, help='Indicate whether we are in IGRIDA cluster mode')
     parser.add_argument('--num_workers', type=int, default=get_num_workers(),
                         help='Indicate whether we are in IGRIDA cluster mode. Default: Use all cpu cores.')
     parser.add_argument('--accelerator', type=str, default='auto',
@@ -420,15 +421,24 @@ def parse_argument(prog: str = __name__, description: str = 'Experimentation on 
     # Regularizer
     parser.add_argument('--lambda_entropy', type=float, default=0., help='multiplier for entropy')
     parser.add_argument('--lambda_supervise', type=float, default=0., help='multiplier for supervise')
-    parser.add_argument('--lambda_lagrange', type=float, default=0.,
-                        help='multiplier for relaxation of Lagrange (Supervision by entropy)')
+    parser.add_argument('--lambda_lagrange', type=float, default=0., help='multiplier for relaxation of Lagrange (Supervision by entropy)')
 
     params = parser.parse_args()
+    
+    # If data not provided, automatically get from '<cache>/dataset'
+    params.mode = params.mode.lower()
+    if not (params.train or params.test or params.predict):
+        params.train = True
+        
     print('=== Parameters ===')
     print(json.dumps(vars(params), indent=4))
 
-    # If data not provided, automatically get from '<cache>/dataset'
-    params.mode = params.mode.lower()
+    if params.strategy == 'ddp_find_off':
+        from pytorch_lightning.strategies import DDPStrategy
+        params.strategy = DDPStrategy(find_unused_parameters=False)
+    elif params.strategy == 'ddp_spawn_find_off':
+        from pytorch_lightning.strategies import DDPSpawnStrategy
+        params.strategy = DDPSpawnStrategy(find_unused_parameters=False)
     return params
 
 
@@ -436,12 +446,12 @@ def parse_argument(prog: str = __name__, description: str = 'Experimentation on 
 if __name__ == '__main__':
 
     args = parse_argument()
-    if not (args.train or args.test or args.predict):
-        args.train = True
 
     DATA_CACHE = path.join(args.cache, 'dataset')
     MODEL_CACHE = path.join(args.cache, 'models')
     LOGS_CACHE = path.join(args.cache, 'logs')
+    
+    log.info(f'OAR_ID={args.OAR_ID}')
 
     # init logging
     if args.mode == Mode.EXP:
@@ -476,7 +486,6 @@ if __name__ == '__main__':
         cache_path=MODEL_CACHE,
         mode=args.mode,
         vocab=dm.vocab,
-        lambda_key_space=args.lambda_key,
         lambda_entropy=args.lambda_entropy,
         lambda_supervise=args.lambda_supervise,
         lambda_lagrange=args.lambda_lagrange,

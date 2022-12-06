@@ -401,12 +401,16 @@ def parse_argument(prog: str = __name__, description: str = 'Experimentation on 
     parser.add_argument('--lambda_lagrange', type=float, default=0., help='multiplier for relaxation of Lagrange (Supervision by entropy)')
 
     params = parser.parse_args()
+    # Customized arguments
+    if not (params.train or params.test or params.predict):
+        params.train = True
+        
+    # If data not provided, automatically get from '<cache>/dataset'
+    params.mode = params.mode.lower()
     print('=== Parameters ===')
     print(json.dumps(vars(params), indent=4))
 
-    # If data not provided, automatically get from '<cache>/dataset'
-    # Customized arguments
-    params.mode = params.mode.lower()
+    
     if params.strategy == 'ddp_find_off':
         from pytorch_lightning.strategies import DDPStrategy
         params.strategy = DDPStrategy(find_unused_parameters=False)
@@ -420,8 +424,6 @@ def parse_argument(prog: str = __name__, description: str = 'Experimentation on 
 if __name__ == '__main__':
     
     args = parse_argument()
-    if not (args.train or args.test or args.predict):
-        args.train = True
 
     DATA_CACHE = path.join(args.cache, 'dataset')
     MODEL_CACHE = path.join(args.cache, 'models')

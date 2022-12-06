@@ -39,6 +39,8 @@ class DualEkeyLquery(nn.Module):
 			log.debug(f'Load vector from pretraining')
 			self.embedding = nn.Embedding.from_pretrained(pretrained_embedding, freeze=freeze, padding_idx=padding_idx)
 		
+		d_embedding = self.embedding.embedding_dim
+		
 		# contextual block
 		d_in_contextualize = d_embedding
 		d_hidden_lstm = kwargs.get('d_hidden_lstm', d_in_contextualize)

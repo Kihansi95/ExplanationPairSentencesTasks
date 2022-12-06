@@ -32,13 +32,14 @@ class DualLSTMAttentionModule(pl.LightningModule):
 	             lambda_heuristic: float = 0.,
 	             data='Unk data',
 	             num_class=-1,
-	             n_lstm=1,
+	             n_context=1,
+	             concat_context=False,
 	             **kwargs):
 		super(DualLSTMAttentionModule, self).__init__()
 		self.cache_path = cache_path
 		
 		# log hyperparameters into hparams.yaml
-		self.save_hyperparameters('data', 'n_lstm', 'lambda_entropy', 'lambda_supervise', 'lambda_lagrange', 'lambda_heuristic')
+		self.save_hyperparameters('data', 'n_context', 'concat_context', 'lambda_entropy', 'lambda_supervise', 'lambda_lagrange', 'lambda_heuristic')
 		self.data = data
 		
 		if pretrained_vectors is not None and isinstance(pretrained_vectors, str):
@@ -53,7 +54,8 @@ class DualLSTMAttentionModule(pl.LightningModule):
 		                               d_embedding=kwargs['d_embedding'],
 		                               padding_idx=vocab[PAD_TOK],
 		                               n_class=num_class,
-		                               n_lstm=n_lstm,
+		                               n_lstm=n_context,
+		                               concat_context=concat_context,
 		                               attention_raw=True)
 		
 		self.loss_fn = nn.CrossEntropyLoss()

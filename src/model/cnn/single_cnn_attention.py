@@ -34,6 +34,8 @@ class SingleCnnAttention(nn.Module):
 			log.debug(f'Load vector from pretraining')
 			self.embedding = nn.Embedding.from_pretrained(pretrained_embedding, freeze=freeze, padding_idx=padding_idx)
 		
+		d_embedding = self.embedding.embedding_dim
+		
 		# contextualization block
 		d_in_context = d_embedding
 		c_out = 100

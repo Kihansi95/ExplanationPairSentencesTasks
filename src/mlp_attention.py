@@ -68,6 +68,7 @@ def parse_argument(prog: str = __name__, description: str = 'Train LSTM-based at
 	# Optional stuff
 	parser.add_argument('--disable_log_color', action='store_true', help='Activate for console does not support coloring')
 	parser.add_argument('--OAR_ID', type=int, help='Get cluster ID to see error/output logs')
+	parser.add_argument('--track_carbon', type=str, help='If precised will track down carbon')
 	
 	# Trainer params
 	parser.add_argument('--cache', '-o', type=str, default=path.join(os.getcwd(), '..', '.cache'), help='Path to temporary directory to store output of training process')
