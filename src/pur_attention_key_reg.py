@@ -57,7 +57,7 @@ class AttitModel(pl.LightningModule):
                                    num_heads=num_heads,
                                    num_layers=num_layers,
                                    padding_idx=vocab[SpecToken.PAD],
-                                   attention_raw=True,
+                                   attention_raw=False, # get the normalize attention
                                    n_class=num_class,
                                    d_embedding=kwargs['d_embedding'],
                                    freeze=freeze)
@@ -140,8 +140,9 @@ class AttitModel(pl.LightningModule):
         # ENTROPY
         entropy_mask = padding_mask.float().clone().detach().to(self.device)
         entropy_mask[:, 0] = 1.  # we don't take into account the CLS token
-        a_hat_entropy = metrics.entropy(a_hat, entropy_mask.bool(), normalize=True)
+        a_hat_entropy = metrics.entropy(a_hat, padding_mask, normalize=False) # no normalization here
         loss_entropy = a_hat_entropy.mean()  # mean of the entropy over a batch
+        #log.debug(f"loss_entropy : {loss_entropy}")
 
         # Sigmoid for IoU loss
         flat_a_hat, flat_a_true = self.flatten_attention(a_hat=a_hat, a_true=a_true.int(), condition=y_true > 0,
