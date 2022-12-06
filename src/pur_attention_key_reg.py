@@ -141,7 +141,7 @@ class AttitModel(pl.LightningModule):
         entropy_mask[:, 0] = 1.  # we don't take into account the CLS token
         a_hat_entropy = metrics.entropy(a_hat, padding_mask, normalize=False) # no normalization here
         loss_entropy = a_hat_entropy.mean()  # mean of the entropy over a batch
-        #log.debug(f"loss_entropy_grad : {loss_entropy.requires_grad}")
+        #log.debug(f"loss_entropy : {loss_entropy}")
 
         # Sigmoid for IoU loss
         flat_a_hat, flat_a_true = self.flatten_attention(a_hat=a_hat, a_true=a_true.int(), condition=y_true > 0,
