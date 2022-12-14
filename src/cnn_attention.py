@@ -246,14 +246,6 @@ if __name__ == '__main__':
 	hparams_path = path.join(logger.log_dir, 'hparams.yaml')
 	# Carbon tracking
 	
-	if args.mode == Mode.EXP:
-		tracker = EmissionsTracker(
-			project_name=f'{args.name}/{args.version}',
-			output_dir=logger.log_dir,
-			log_level='critical'
-		)
-		tracker.start()
-	
 	# Init model
 	if args.train:
 		model = ModelModule(**model_args)

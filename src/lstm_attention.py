@@ -92,7 +92,8 @@ def parse_argument(prog: str = __name__, description: str = 'Train LSTM-based at
 	parser.add_argument('--dropout', type=float)
 	parser.add_argument('--d_embedding', type=int, default=300, help='Embedding dimension, will be needed if vector is not precised')
 	parser.add_argument('--d_hidden_lstm', type=int, default=-1)
-	parser.add_argument('--n_lstm', type=int, default=1)
+	parser.add_argument('--n_context', type=int, default=1)
+	parser.add_argument('--concat_context', action='store_true')
 	
 	# Data configuration
 	parser.add_argument('--n_data', '-n', type=int, default=-1, help='Maximum data number for train+val+test, -1 if full dataset. Default: -1')
@@ -195,7 +196,8 @@ if __name__ == '__main__':
 		lambda_lagrange=args.lambda_lagrange,
 		lambda_heuristic=args.lambda_heuristic,
 		pretrained_vectors=args.vectors,
-		n_lstm=args.n_lstm,
+		concat_context=args.concat_context,
+		n_context=args.n_context,
 		d_hidden_lstm=args.d_hidden_lstm,
 		d_embedding=args.d_embedding,
 		data=args.data,

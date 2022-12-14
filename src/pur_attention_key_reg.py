@@ -5,6 +5,7 @@ from argparse import ArgumentParser
 from typing import Union
 import json
 
+from codecarbon import EmissionsTracker, OfflineEmissionsTracker
 from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning import callbacks as cb
 
@@ -16,10 +17,10 @@ import torchmetrics as m
 from data_module.hatexplain import CLSTokenHateXPlainDM
 from data_module.yelp_hat import *
 from data_module.esnli import CLSTokenESNLIDM
-from modules.const import SpecToken, Mode
+from modules.const import SpecToken, Mode, TrackCarbon
 
 from modules.logger import log, init_logging
-from modules import metrics, env, rescale, INF
+from modules import metrics, rescale, INF
 
 from model.attention.pur_attention_key import PureAttention
 from modules.loss import IoU
@@ -332,6 +333,27 @@ def get_num_workers() -> int:
     return num_workers if num_workers is not None else 0
 
 
+def get_carbon_tracker(args) -> EmissionsTracker:
+    if args.track_carbon is None:
+        return None
+    
+    if args.track_carbon == TrackCarbon.ONLINE:
+        tracker = EmissionsTracker(
+            project_name=f'{args.name}/{args.version}',
+            output_dir=logger.log_dir,
+            log_level='critical'
+        )
+    elif args.track_carbon == TrackCarbon.OFFLINE:
+        tracker = OfflineEmissionsTracker(
+            project_name=f'{args.name}/{args.version}',
+            output_dir=logger.log_dir,
+            log_level='critical',
+            country_iso_code='FRA'
+        )
+    
+    tracker.start()
+    return tracker
+
 def parse_argument(prog: str = __name__, description: str = 'Experimentation on NLP') -> dict:
     """
     Parse arguments passed to the script.
@@ -346,13 +368,14 @@ def parse_argument(prog: str = __name__, description: str = 'Experimentation on 
     # Optional stuff
     parser.add_argument('--disable_log_color', action='store_true',
                         help='Activate for console does not support coloring')
+    parser.add_argument('--OAR_ID', type=int, help='Indicate whether we are in IGRIDA cluster mode')
+    parser.add_argument('--track_carbon', type=str, help='If precised will track down carbon')
 
     # Training params
     parser.add_argument('--cache', '-o', type=str, default=path.join(os.getcwd(), '..', '.cache'),
                         help='Path to temporary directory to store output of training process')
     parser.add_argument('--mode', '-m', type=str, default='dev',
                         help='Choose among f[dev, exp]. "exp" will disable the progressbar')
-    parser.add_argument('--OAR_ID', type=int, help='Indicate whether we are in IGRIDA cluster mode')
     parser.add_argument('--num_workers', type=int, default=get_num_workers(),
                         help='Indicate whether we are in IGRIDA cluster mode. Default: Use all cpu cores.')
     parser.add_argument('--accelerator', type=str, default='auto',
@@ -398,15 +421,24 @@ def parse_argument(prog: str = __name__, description: str = 'Experimentation on 
     # Regularizer
     parser.add_argument('--lambda_entropy', type=float, default=0., help='multiplier for entropy')
     parser.add_argument('--lambda_supervise', type=float, default=0., help='multiplier for supervise')
-    parser.add_argument('--lambda_lagrange', type=float, default=0.,
-                        help='multiplier for relaxation of Lagrange (Supervision by entropy)')
+    parser.add_argument('--lambda_lagrange', type=float, default=0., help='multiplier for relaxation of Lagrange (Supervision by entropy)')
 
     params = parser.parse_args()
+    
+    # If data not provided, automatically get from '<cache>/dataset'
+    params.mode = params.mode.lower()
+    if not (params.train or params.test or params.predict):
+        params.train = True
+        
     print('=== Parameters ===')
     print(json.dumps(vars(params), indent=4))
 
-    # If data not provided, automatically get from '<cache>/dataset'
-    params.mode = params.mode.lower()
+    if params.strategy == 'ddp_find_off':
+        from pytorch_lightning.strategies import DDPStrategy
+        params.strategy = DDPStrategy(find_unused_parameters=False)
+    elif params.strategy == 'ddp_spawn_find_off':
+        from pytorch_lightning.strategies import DDPSpawnStrategy
+        params.strategy = DDPSpawnStrategy(find_unused_parameters=False)
     return params
 
 
@@ -414,12 +446,12 @@ def parse_argument(prog: str = __name__, description: str = 'Experimentation on 
 if __name__ == '__main__':
 
     args = parse_argument()
-    if not (args.train or args.test or args.predict):
-        args.train = True
 
     DATA_CACHE = path.join(args.cache, 'dataset')
     MODEL_CACHE = path.join(args.cache, 'models')
     LOGS_CACHE = path.join(args.cache, 'logs')
+    
+    log.info(f'OAR_ID={args.OAR_ID}')
 
     # init logging
     if args.mode == Mode.EXP:
@@ -508,9 +540,11 @@ if __name__ == '__main__':
     if args.train:
         model = AttitModel(**model_args)
         trainer.fit(model, datamodule=dm, ckpt_path=ckpt_path if args.resume else None)
-
     else:
         model = AttitModel.load_from_checkpoint(checkpoint_path=ckpt_path, hparams_file=hparams_path, **model_args)
+
+    # Carbon tracking
+    tracker = get_carbon_tracker(args)
 
     if args.train or args.test:
 
@@ -533,3 +567,8 @@ if __name__ == '__main__':
             with open(score_path, 'w') as fp:
                 json.dump(score, fp, indent='\t')
                 log.info(f'Score is saved at {score_path}')
+
+    if tracker is not None:
+        emission = tracker.stop()
+        emission_str = f'Total emission in experiment trial: {emission} kgs'
+        log.info(emission_str)

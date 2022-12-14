@@ -33,6 +33,8 @@ class SingleLstmAttention(nn.Module):
 			log.debug(f'Load vector from pretraining')
 			self.embedding = nn.Embedding.from_pretrained(pretrained_embedding, freeze=freeze, padding_idx=padding_idx)
 		
+		d_embedding = self.embedding.embedding_dim
+		
 		# LSTM block
 		d_in_lstm = d_embedding
 		d_hidden_lstm = kwargs.get('d_hidden_lstm', d_in_lstm)
@@ -50,8 +52,12 @@ class SingleLstmAttention(nn.Module):
 		self.attention = Attention(embed_dim=d_out_lstm, num_heads=num_heads, dropout=dropout, kdim=d_attn, vdim=d_attn, batch_first=True, attention_raw=attention_raw)
 		d_context = d_out_lstm
 		
+		self.concat_context = kwargs.get('concat_context', True) # concatenate by default, to be compatible with other script
+		
 		d_fc_out = kwargs.get('d_fc_out', d_context)
-		self.fc_squeeze = FullyConnected(d_context + d_out_lstm, d_fc_out, activation=activation, dropout=dropout)
+		
+		d_in_fc_squeeze = d_context + self.concat_context * d_out_lstm  # concat with output from LSTM
+		self.fc_squeeze = FullyConnected(d_in_fc_squeeze, d_fc_out, activation=activation, dropout=dropout)
 		
 		n_fc_out = kwargs.get('n_fc_out', 0)
 		self.fc_out = nn.ModuleList([
@@ -100,8 +106,11 @@ class SingleLstmAttention(nn.Module):
 		context, attn_weights = self.attention(query=h_last, key=h_seq, value=h_seq, key_padding_mask=mask)
 		context = context.squeeze(dim=1)
 		h_last = h_last.squeeze(dim=1)
-
-		x = torch.cat([context, h_last], dim=1)
+	
+		if self.concat_context:
+			x = torch.cat([context, h_last], dim=1)
+		else:
+			x = context
 		x = self.fc_squeeze(x)  # (N, d_fc_out)
 		
 		for fc in self.fc_out:
