@@ -1,6 +1,3 @@
-"""
-The objective of this file is to create a new attention map based on the cosine between embeddings in the BERT space
-"""
 import os.path
 from tqdm import tqdm
 import torch
@@ -14,80 +11,49 @@ RELU = torch.nn.ReLU()
 INF = 1e16
 
 
-def dict_print(d):
-    for k in d:
-        print(k, " : ", d[k])
-
-
-###############################################
-### Calculation of the new embedding matrix ###
-###############################################
-
-def create_embeddings(model, cache: str) -> Tensor:
+# TODO : verify this function
+def compute_rolling_cos(ids: Tensor,
+                        cls_states: Tensor,
+                        model: torch.nn.Module,
+                        padding_idx: int = 0):
     """
     Args:
-        model: a pur attention based model
-        cache : where to load the embedding matrix
+        ids (Tensor): ids of the different sentences in the batch we treat
+        cls_states:
+        model:
+        padding_idx:
 
     Returns:
-        return a tensor of the shape (len(vocab), 300) and save it at the path : cache.
-    """
-    if os.path.exists(cache):
-        print(f"load the matrix at the location {cache} ...", end=" ")
-        emb_matrix = torch.load(cache, map_location=torch.device('cpu'))
-        print("loading done !")
-    else:
-        assert hasattr(model, "vocab"), "error : the given model doesn't have the vocab argument"
-        print("vectors proceeding")
-
-        vocab_itos = model.vocab.get_itos()
-        emb_matrix = torch.zeros((len(vocab_itos), 300), device=model.device)
-
-        with torch.no_grad():
-            for i in range(len(vocab_itos)):
-                # iterate through all the words
-                ids = torch.tensor([[model.vocab["<cls>"], i, i, i, i, i]], device=model.device)
-                p = torch.tensor([[False, False, False, False, False, False]], device=model.device)
-                output = model(ids=ids, mask=p)
-                emb_matrix[i, :] = output["last_hidden_states"][0, 0, :]
-
-        torch.save(emb_matrix, cache)
-        print("done !")
-
-    # return the embedding matrix on a casual device.
-    return emb_matrix.cpu()
-
-
-#####################################
-### computation of the cosine map ###
-#####################################
-
-def compute_attention_cos_map(ids: Tensor, embedding: torch.nn.Module, cls_states: Tensor,
-                              padding_idx: int = 0) -> Tensor:
-    """compute_attention_cos_map
-
-    Compute the cosine "attention" for the given batch.
-
-    Args:
-        ids (Tensor): tensor of the ids of a sentence (N, L)
-        embedding (Module): an embedding layer
-        cls_states (Tensor): the cls states of the different sentences (N, d)
-        padding_idx (int): the padding idx.
-
-    Returns:
-        return the matrix of the cosines.
 
     """
-    res = torch.zeros(ids.shape, dtype=float, device=ids.device)
-    new_emb = embedding(ids)  # tensor of shape (N, L, d)
+
+    res = torch.zeros(ids.shape, dtype=float, device=model.device)
     mask = ids != padding_idx
 
     # for each sentence
-    for i in range(new_emb.shape[0]):
-        curr_sent = new_emb[i, :, :]
-        curr_rep = cls_states[i, :]  # the vector usefull for the classification of the sentence i
+    for i in range(ids.shape[0]):
+
+        curr_rep = cls_states[i, :]  # the vector were
+        curr_sent = torch.zeros((ids.shape[1], 300), device=model.device)  # the new embeddings of the sentence
+
+        for k in range(ids.shape[1]):
+            # we treat the element k in the model.
+            if k == 0:
+                curr_ids = ids[i, :][[k, k + 1]]
+                p = torch.tensor([False, False], device=model.device)
+            if k == ids.shape[1]:
+                curr_ids = ids[i, :][[k - 1, k]]
+                p = torch.tensor([False, False], device=model.device)
+            else:
+                curr_ids = ids[i, :][[k - 1, k, k + 1]]
+                p = torch.tensor([False, False, False], device=model.device)
+
+            output = model(curr_ids.unsqueeze(0), p.unsqueeze(0))
+            buff = output["last_hidden_states"][0, :, :].mean(dim=0)
+            curr_sent[k, :] = buff
 
         # compute the cosine
+
         dot_prod = torch.matmul(curr_sent, curr_rep)
         nms = torch.norm(curr_sent, dim=-1)
 
@@ -106,11 +72,7 @@ def compute_attention_cos_map(ids: Tensor, embedding: torch.nn.Module, cls_state
     return res
 
 
-###################################################
-### computation of the results for the notebook ###
-###################################################
-
-def attention_metrics_res(model, dm, cache: str, nb_data: int, verbose: bool = True):
+def attention_metrics_res(model, dm, nb_data: int, verbose: bool = True):
     """ attention_metrics_res
 
     The objective of this function is to compare the attention between the two technics
@@ -126,17 +88,7 @@ def attention_metrics_res(model, dm, cache: str, nb_data: int, verbose: bool = T
     Returns:
         returns result of some plausibility metrics.
     """
-    cond = 0
-    if model.data == "yelphat":
-        # for the yelphat dataset we take all the labels into account.
-        cond = 10
-    if verbose:
-        print(cond)
-    emb_matrix = create_embeddings(model, cache)  # load the embedding matrix
-    embedding = torch.nn.Embedding.from_pretrained(emb_matrix,
-                                                   freeze=True,
-                                                   padding_idx=dm.vocab["<pad>"])
-    embedding.to(model.device)
+    cond = 8
 
     # proceed the attention
     test_dataloader = dm.test_dataloader()
@@ -173,13 +125,13 @@ def attention_metrics_res(model, dm, cache: str, nb_data: int, verbose: bool = T
 
             # a_hat map
             attention_tensor = torch.stack(output['attn_weights'], dim=1)  # [N, 1, L, L]
-            a_hat = attention_tensor[:, model.num_layers - 1, 0, :]  # of size (N, L)
+            a_hat = attention_tensor[:, 0, 0, :]  # of size (N, L)
             a_hat = a_hat.flatten()  # flatten the attention map
             attention_map.append(a_hat)
 
             # cosine map
-            cls_tokens = output["cls_tokens"]
-            cos = compute_attention_cos_map(ids, embedding, cls_tokens)
+            cls_tokens = output["cls_tokens"]  # last states for the embeddings
+            cos = compute_rolling_cos(ids, cls_tokens, model)
             cos = cos.flatten()  # flatten the cosine map
             cosine_map.append(cos)
 
