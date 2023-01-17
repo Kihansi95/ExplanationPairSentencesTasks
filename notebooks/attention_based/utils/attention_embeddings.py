@@ -46,8 +46,8 @@ def create_embeddings(model, cache: str) -> Tensor:
         with torch.no_grad():
             for i in range(len(vocab_itos)):
                 # iterate through all the words
-                ids = torch.tensor([[model.vocab["<cls>"], i, i, i, i, i]], device=model.device)
-                p = torch.tensor([[False, False, False, False, False, False]], device=model.device)
+                ids = torch.tensor([[model.vocab["<cls>"], i]], device=model.device)
+                p = torch.tensor([[False, False]], device=model.device)
                 output = model(ids=ids, mask=p)
                 emb_matrix[i, :] = output["last_hidden_states"][0, 0, :]
 
