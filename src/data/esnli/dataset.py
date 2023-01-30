@@ -177,7 +177,6 @@ class ESNLI(MapDataPipe):
 		download_format_dataset(root, split)
 		
 		# load the csv file to data
-		
 		self.data = pd.read_parquet(self.parquet_path)
 		
 		# if n_data activated, reduce the dataset equally for each class

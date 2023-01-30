@@ -62,7 +62,7 @@ def clean_cache(root: str):
 	for fname in os.listdir(root):
 		if fname.endswith('.lock'): os.remove(os.path.join(root, fname))
 	
-	
+
 def _reformat_dataframe(data: pandas.DataFrame, split):
 	
 	# Correct 1 example in train set
@@ -155,7 +155,6 @@ class HateXPlain(MapDataPipe):
 		if index >= len(self): raise IndexError  # meet the end of dataset
 		
 		sample = self.data.loc[index].to_dict()
-		
 		return sample
 	
 	def __len__(self):

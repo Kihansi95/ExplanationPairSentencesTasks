@@ -1,19 +1,17 @@
-import os
-from os import path
 import json
 from argparse import ArgumentParser
 from codecarbon import EmissionsTracker, OfflineEmissionsTracker
 
-from model_module import SingleCNNAttentionModule, DualCNNAttentionModule
 from modules import report_score
 from modules.const import *
-from modules.inferences.prediction_writer import ParquetPredictionWriter
 from modules.logger import init_logging
 from modules.logger import log
 
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning import callbacks as cb
+
+from model_module import *
 
 def get_num_workers() -> int:
 	"""
@@ -33,29 +31,29 @@ def get_num_workers() -> int:
 	num_workers = os.cpu_count()
 	return num_workers if num_workers is not None else 0
 
-
 def get_carbon_tracker(args) -> EmissionsTracker:
+	
 	if args.track_carbon is None:
 		return None
 	
 	if args.track_carbon == TrackCarbon.ONLINE:
 		tracker = EmissionsTracker(
 			project_name=f'{args.name}/{args.version}',
-			output_dir=LOG_DIR,
+			output_dir=logger.log_dir,
 			log_level='critical'
 		)
 	elif args.track_carbon == TrackCarbon.OFFLINE:
 		tracker = OfflineEmissionsTracker(
 			project_name=f'{args.name}/{args.version}',
-			output_dir=LOG_DIR,
+			output_dir=logger.log_dir,
 			log_level='critical',
 			country_iso_code='FRA'
 		)
-	
+		
 	tracker.start()
 	return tracker
 
-def parse_argument(prog: str = __name__, description: str = 'Train LSTM-based attention') -> dict:
+def parse_argument(prog: str = __name__, description: str = 'Train LSTM model in classification tasks') -> dict:
 	"""
 	Parse arguments passed to the script.
 	Args:
@@ -73,7 +71,7 @@ def parse_argument(prog: str = __name__, description: str = 'Train LSTM-based at
 	
 	# Trainer params
 	parser.add_argument('--cache', '-o', type=str, default=path.join(os.getcwd(), '..', '.cache'), help='Path to temporary directory to store output of training process')
-	parser.add_argument('--mode', '-m', type=str, default=Mode.DEV, choices=Mode.list(), help='Choose among [dev, exp]. "exp" will disable the progressbar')
+	parser.add_argument('--mode', '-m', type=str, default='dev', help='Choose among [dev, exp]. "exp" will disable the progressbar')
 	parser.add_argument('--num_workers', type=int, default=get_num_workers(), help='Indicate whether we are in IGRIDA cluster mode. Default: Use all cpu cores.')
 	parser.add_argument('--accelerator', type=str, default='auto', help='Indicate whether we are in IGRIDA cluster mode. Default: Use all cpu cores.')
 	parser.add_argument('--name', type=str, help='Experimentation name. If not given, use model name instead.')
@@ -91,14 +89,13 @@ def parse_argument(prog: str = __name__, description: str = 'Train LSTM-based at
 	parser.add_argument('--vectors', type=str, help='Pretrained vectors. See more in torchtext Vocab, example: glove.840B.300d')
 	parser.add_argument('--dropout', type=float)
 	parser.add_argument('--d_embedding', type=int, default=300, help='Embedding dimension, will be needed if vector is not precised')
-
-	#parser.add_argument('--context', type=str, choices=ContextType.list())
-	parser.add_argument('--n_kernel', type=int, default=3)
+	parser.add_argument('--d_hidden_lstm', type=int, default=-1)
 	parser.add_argument('--n_context', type=int, default=1)
+	parser.add_argument('--concat_context', action='store_true')
 	
 	# Data configuration
 	parser.add_argument('--n_data', '-n', type=int, default=-1, help='Maximum data number for train+val+test, -1 if full dataset. Default: -1')
-	parser.add_argument('--data', '-d', type=str, help='Choose dataset to train model')
+	parser.add_argument('--data', '-d', choices=Data.list(), type=str, help=f'Choose dataset to train model, possible choice: esnli, hatexplain, yelphat')
 	parser.add_argument('--shuffle_off', action='store_true', help='Turn off shuffle in training cycle. Used for debug large dataset.')
 	
 	# Fit configuration
@@ -111,7 +108,6 @@ def parse_argument(prog: str = __name__, description: str = 'Train LSTM-based at
 	parser.add_argument('--train', action='store_true')
 	parser.add_argument('--test', action='store_true')
 	parser.add_argument('--predict', action='store_true')
-	
 	
 	# Regularizer
 	parser.add_argument('--lambda_entropy', type=float, default=0., help='multiplier for entropy')
@@ -132,6 +128,7 @@ def parse_argument(prog: str = __name__, description: str = 'Train LSTM-based at
 		from pytorch_lightning.strategies import DDPSpawnStrategy
 		params.strategy = DDPSpawnStrategy(find_unused_parameters=False)
 	return params
+
 
 if __name__ == '__main__':
 	
@@ -155,8 +152,9 @@ if __name__ == '__main__':
 		
 	log.info(f'experimentation_name = {args.name}')
 	if args.resume:
-		log.warn('Resume from previous training')
+		log.warning('Resume from previous training')
 	
+	# Init data module
 	dm_kwargs = dict(cache_path=DATA_CACHE,
 	                 batch_size=args.batch_size,
 	                 num_workers=args.num_workers,
@@ -167,16 +165,16 @@ if __name__ == '__main__':
 		from data_module.hatexplain import HateXPlainDM
 		dm = HateXPlainDM(**dm_kwargs)
 	elif args.data == 'yelphat':
-		from data_module.yelp_hat import YelpHatDM
+		from data_module.yelp_hat import *
 		dm = YelpHatDM(**dm_kwargs)
 	elif args.data == 'yelphat50':
-		from data_module.yelp_hat import YelpHat50DM
+		from data_module.yelp_hat import *
 		dm = YelpHat50DM(**dm_kwargs)
 	elif args.data == 'yelphat100':
-		from data_module.yelp_hat import YelpHat100DM
+		from data_module.yelp_hat import *
 		dm = YelpHat100DM(**dm_kwargs)
 	elif args.data == 'yelphat200':
-		from data_module.yelp_hat import YelpHat200DM
+		from data_module.yelp_hat import *
 		dm = YelpHat200DM(**dm_kwargs)
 	elif args.data == 'esnli':
 		from data_module.esnli import ESNLIDM
@@ -196,18 +194,18 @@ if __name__ == '__main__':
 		lambda_lagrange=args.lambda_lagrange,
 		lambda_heuristic=args.lambda_heuristic,
 		pretrained_vectors=args.vectors,
+		concat_context=args.concat_context,
 		n_context=args.n_context,
+		d_hidden_lstm=args.d_hidden_lstm,
 		d_embedding=args.d_embedding,
 		data=args.data,
-		num_class=dm.num_class,
-		n_kernel=args.n_kernel
+		num_class=dm.num_class
 	)
 	
-
 	if dm.input_type == InputType.SINGLE:
-		ModelModule = SingleCNNAttentionModule
+		ModelModule = SingleLSTMModule
 	elif dm.input_type == InputType.DUAL:
-	 	ModelModule = DualCNNAttentionModule
+		ModelModule = DualLSTMModule
 	else:
 		msg = f'Unknown input type of dm {str(dm)}: {dm.input_type}'
 		log.error(msg)
@@ -225,10 +223,6 @@ if __name__ == '__main__':
 		default_hp_metric=False # deactivate hp_metric on tensorboard visualization
 	)
 	
-	LOG_DIR = logger.log_dir
-	
-	pred_writer = ParquetPredictionWriter(output_dir=path.join(LOG_DIR, 'predictions'), write_interval='batch')
-	
 	trainer = pl.Trainer(
 		max_epochs=args.epoch,
 		accelerator=args.accelerator,  # auto use gpu
@@ -243,15 +237,13 @@ if __name__ == '__main__':
 		detect_anomaly=args.detect_anomaly, # deactivate on large scale experiemnt
 		benchmark=False,    # benchmark = False better time in NLP
 		devices=args.devices,
-		num_nodes=args.num_nodes,
+		num_nodes=args.num_nodes
 	)
 	
 	# Set up output path
-	ckpt_path = path.join(LOG_DIR, 'checkpoints', 'best.ckpt')
-	hparams_path = path.join(LOG_DIR, 'hparams.yaml')
-	# Carbon tracking
+	ckpt_path = path.join(logger.log_dir, 'checkpoints', 'best.ckpt')
+	hparams_path = path.join(logger.log_dir, 'hparams.yaml')
 	
-	# Init model
 	if args.train:
 		model = ModelModule(**model_args)
 		trainer.fit(model, datamodule=dm, ckpt_path=ckpt_path if args.resume else None)
@@ -274,10 +266,15 @@ if __name__ == '__main__':
 		)
 		
 		log.warning('Prediction incompleted')
+		
+		#predict_path = path.join(logger.log_dir, f'predict.txt')
+		
+		#with open(predict_path, 'w') as fp:
+		#	fp.write(predictions)
+		#	log.info(f'Predictions are saved at {predict_path}')
 	
 	if tracker is not None:
 		emission = tracker.stop()
 		emission_str = f'Total emission in experiment trial: {emission} kgs'
 		log.info(emission_str)
-		
 		

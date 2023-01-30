@@ -35,12 +35,15 @@ class Normalization(str, ExtendedEnum):
 
 # Model configuration constant
 class ContextType(str, ExtendedEnum):
+	MLP='mlp'
 	LSTM='lstm'
 	CNN='cnn'
 	ATTENTION='attention'
+	BERT='bert'
 	
 # Data choice
 class Data(str, ExtendedEnum):
+	ARCHIVAL_NLI='archival_nli'
 	ESNLI='esnli'
 	HATEXPLAIN='hatexplain'
 	YELPHAT='yelphat'

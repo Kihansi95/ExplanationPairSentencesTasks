@@ -61,19 +61,19 @@ if __name__ == '__main__':
 	if isinstance(args.experiment, list) and len(args.experiment) > 0:
 		
 		for e in args.experiment:
-			if not path.exists(path.join(log_dir, e)): raise ValueError(f'Experiment {e} does not exist in {log_dir}')
+			if args.summary and not path.exists(path.join(log_dir, e)): raise ValueError(f'Experiment {e} does not exist in {log_dir}')
 		
 	else:
 		args.experiment = [e for e in os.listdir(log_dir) if '.DS_Store' not in e]
 	
 	# summary results
 	summary = [None] * len(args.experiment)
+	
 	for experiment in args.experiment:
 
 		experiment_path = path.join(log_dir, experiment)
 		out_path = path.join(args.out_dir, 'summary', experiment)
 		parquet_path = path.join(out_path, 'summary.parquet')
-		
 		results = list()
 		runs = list(os.listdir(experiment_path))
 		runs = [r for r in runs if '.DS_Store' not in r]

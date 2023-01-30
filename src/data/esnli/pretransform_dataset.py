@@ -12,7 +12,7 @@ _SEGMENT_SIZE = 10000
 
 class PretransformedESNLI(ESNLI):
 	
-	def __init__(self, transformations: dict, column_name: dict, split: str = 'train', root: str = path.join(os.getcwd(), '.cache'), n_data: int = -1):
+	def __init__(self, transformations: dict, column_name: dict, prefix:str='',  split: str = 'train', root: str = path.join(os.getcwd(), '.cache'), n_data: int = -1):
 		"""
 
 		Args:
@@ -31,7 +31,8 @@ class PretransformedESNLI(ESNLI):
 		root = self.root(root)
 		
 		fname, fext = os.path.splitext(_EXTRACTED_FILES[split])
-		self.parquet_path = path.join(root, f'{fname}.pretransformed{fext}')
+		if len(prefix) > 0 and prefix[0] != '.': prefix = '.' + prefix
+		self.parquet_path = path.join(root, f'{fname}.pretransformed{prefix}{fext}')
 		
 		if path.exists(self.parquet_path):
 			# load the cache file to data if file exist

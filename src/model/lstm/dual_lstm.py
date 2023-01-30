@@ -8,14 +8,14 @@ from model.layers.fully_connected import FullyConnected
 from modules.logger import log
 
 
-class DualLstmAttention(Net):
+class DualLstm(Net):
 	
 	def __init__(self, d_embedding: int, padding_idx: int, vocab_size:int=None, pretrained_embedding=None, n_class=3, **kwargs):
 		"""
 		Delta model has a customized attention layers
 		"""
 		
-		super(DualLstmAttention, self).__init__()
+		super(DualLstm, self).__init__()
 		# Get model parameters
 		assert not(vocab_size is None and pretrained_embedding is None), 'Provide either vocab size or pretrained embedding'
 		
@@ -47,16 +47,8 @@ class DualLstmAttention(Net):
 		# Bidirectional
 		d_out_lstm = d_hidden_lstm * (self.bidirectional + 1)
 		
-		d_attn = kwargs.get('d_attn', d_out_lstm)
-		
-		attention_raw = kwargs.get('attention_raw', False)
-		self.attention = Attention(embed_dim=d_out_lstm, num_heads=num_heads, dropout=dropout, kdim=d_attn, vdim=d_attn, attention_raw=attention_raw)
-		d_context = d_out_lstm
-		
-		self.concat_context = kwargs.get('concat_context', True)  # concatenate by default, to be compatible with other script
-		
-		d_fc_out = kwargs.get('d_fc_out', d_context)
-		d_in_fc_squeeze = d_context + self.concat_context * d_out_lstm
+		d_fc_out = kwargs.get('d_fc_out', d_out_lstm)
+		d_in_fc_squeeze = 2 * d_out_lstm
 		self.fc_squeeze = FullyConnected(d_in_fc_squeeze, d_fc_out, activation=activation, dropout=dropout)
 		
 		n_fc_out = kwargs.get('n_fc_out', 0)
@@ -91,7 +83,7 @@ class DualLstmAttention(Net):
 		
 		return hidden, hseq
 	
-	def forward(self, premise_ids, hypothesis_ids, premise_padding=None, hypothesis_padding=None):
+	def forward(self, premise_ids, hypothesis_ids):
 		"""
 
 		Args:
@@ -105,41 +97,31 @@ class DualLstmAttention(Net):
 		# h = hidden_dim = embedding_size
 		# C = n_class
 		ids = {'premise': premise_ids, 'hypothesis': hypothesis_ids}
-		padding_mask = {'premise': premise_padding, 'hypothesis': hypothesis_padding}
 		
 		# Reproduce hidden representation from LSTM
 		h_last = dict()
-		h_seq = dict()
+		#h_seq = dict()
 		for side, x in ids.items():
 			# h_last.size() == (N, 1, d_out_lstm)
 			# h_seq.size() == (N, L, d_out_lstm)
-			h_last[side], h_seq[side] = self.forward_lstm(x)
+			#h_last[side], h_seq[side] = self.forward_lstm(x)
+			h_last[side], _ = self.forward_lstm(x)
 			
 			# Reswapping dimension for multihead attention
 			h_last[side] = h_last[side].permute(1, 0, 2)  # (1, N, d_out_lstm)
-			h_seq[side] = h_seq[side].permute(1, 0, 2)  # (L, N, d_hidden_lstm)
+			#h_seq[side] = h_seq[side].permute(1, 0, 2)  # (L, N, d_hidden_lstm)
 			
-			
-		# Compute cross attention
-		attn_weights = dict()
-		context = dict()
-		sides = list(ids.keys())
-		for s, s_bar in sides, sides[::-1]:
-			# context.size() == (N, 1, d_attention)
-			# attn_weight.size() == (N, 1, L)
-			context[s_bar], attn_weights[s] = self.attention(query=h_last[s_bar], key=h_seq[s], value=h_seq[s],key_padding_mask=padding_mask[s])
-			context[s_bar] = context[s_bar].squeeze(dim=0)  # context.size() == (N, d_attention)
-			attn_weights[s] = attn_weights[s].squeeze(1)    # attn_weights.size() == (N, L)
+			h_last[side] = h_last[side].squeeze(dim=0)
 
 		# concat the 2 context vector to make prediction
-		x = torch.cat(list(context.values()), dim=1)  # (N, d_concat)
+		x = torch.cat(list(h_last.values()), dim=1)  # (N, d_concat)
 		x = self.fc_squeeze(x)  # (N, d_fc_out)
 		
 		for fc in self.fc_out:
 			x = fc(x)  # (N, d_fc_out) unchanged
 		out = self.classifier(x)  # (N, n_class)
 		
-		return out, attn_weights
+		return out
 
 
 if __name__ == '__main__':
@@ -188,15 +170,15 @@ if __name__ == '__main__':
 	
 	y = torch.tensor(y, dtype=torch.long)
 	padding_idx = vocab['<pad>']
-	model = DualLstmAttention(d_embedding=300,
-	                          padding_idx=padding_idx,
-	                          vocab_size=len(vocab),
-	                          dropout=0,
-	                          d_fc_lstm=-1,
-	                          d_fc_attentiion=-1,
-	                          d_context=-1,
-	                          n_class=3,
-	                          n_fc_out=0)
+	model = DualLstm(d_embedding=300,
+	                 padding_idx=padding_idx,
+	                 vocab_size=len(vocab),
+	                 dropout=0,
+	                 d_fc_lstm=-1,
+	                 d_fc_attentiion=-1,
+	                 d_context=-1,
+	                 n_class=3,
+	                 n_fc_out=0)
 	
 	model.train()
 	

@@ -4,9 +4,10 @@ import json
 from argparse import ArgumentParser
 from codecarbon import EmissionsTracker, OfflineEmissionsTracker
 
-from model_module import DualEkeyLqueryModule, SingleEkeyLqueryModule
+from model_module import DualMlpAttentionModule, SingleMlpAttentionModule
 from modules import report_score
 from modules.const import InputType, Mode, TrackCarbon
+from modules.inferences.prediction_writer import ParquetPredictionWriter
 from modules.logger import init_logging
 from modules.logger import log
 
@@ -40,13 +41,13 @@ def get_carbon_tracker(args) -> EmissionsTracker:
 	if args.track_carbon == TrackCarbon.ONLINE:
 		tracker = EmissionsTracker(
 			project_name=f'{args.name}/{args.version}',
-			output_dir=logger.log_dir,
+			output_dir=LOG_DIR,
 			log_level='critical'
 		)
 	elif args.track_carbon == TrackCarbon.OFFLINE:
 		tracker = OfflineEmissionsTracker(
 			project_name=f'{args.name}/{args.version}',
-			output_dir=logger.log_dir,
+			output_dir=LOG_DIR,
 			log_level='critical',
 			country_iso_code='FRA'
 		)
@@ -202,9 +203,9 @@ if __name__ == '__main__':
 	)
 	
 	if dm.input_type == InputType.SINGLE:
-		ModelModule = SingleEkeyLqueryModule
+		ModelModule = SingleMlpAttentionModule
 	elif dm.input_type == InputType.DUAL:
-		ModelModule = DualEkeyLqueryModule
+		ModelModule = DualMlpAttentionModule
 	else:
 		msg = f'Unknown input type of dm {str(dm)}: {dm.input_type}'
 		log.error(msg)
@@ -222,6 +223,10 @@ if __name__ == '__main__':
 		default_hp_metric=False # deactivate hp_metric on tensorboard visualization
 	)
 	
+	LOG_DIR = logger.log_dir
+	
+	pred_writer = ParquetPredictionWriter(output_dir=path.join(LOG_DIR, 'predictions'), write_interval='batch')
+	
 	trainer = pl.Trainer(
 		max_epochs=args.epoch,
 		accelerator=args.accelerator,  # auto use gpu
@@ -231,7 +236,7 @@ if __name__ == '__main__':
 		logger=logger,
 		strategy=args.strategy,
 		fast_dev_run=args.fast_dev_run,
-		callbacks=[early_stopping, model_checkpoint],
+		callbacks=[early_stopping, model_checkpoint, pred_writer],
 		track_grad_norm=args.track_grad_norm, # track_grad_norm=2 for debugging
 		detect_anomaly=args.detect_anomaly, # deactivate on large scale experiemnt
 		benchmark=False,    # benchmark = False better time in NLP
@@ -240,8 +245,8 @@ if __name__ == '__main__':
 	)
 	
 	# Set up output path
-	ckpt_path = path.join(logger.log_dir, 'checkpoints', 'best.ckpt')
-	hparams_path = path.join(logger.log_dir, 'hparams.yaml')
+	ckpt_path = path.join(LOG_DIR, 'checkpoints', 'best.ckpt')
+	hparams_path = path.join(LOG_DIR, 'hparams.yaml')
 	
 	if args.train:
 		model = ModelModule(**model_args)
@@ -265,7 +270,7 @@ if __name__ == '__main__':
 		)
 		
 		log.warn('Prediction incompleted')
-		predict_path = path.join(logger.log_dir, f'predict.txt')
+		predict_path = path.join(LOG_DIR, f'predict.txt')
 		
 		with open(predict_path, 'w') as fp:
 			fp.write(predictions)

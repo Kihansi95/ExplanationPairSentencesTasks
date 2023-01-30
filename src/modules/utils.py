@@ -45,7 +45,6 @@ def hightlight_txt(txt, weights):
 
 	return highlighted_text
 
-
 def report_score(scores: dict, logger, score_dir=None) -> None:
 	"""
 	Report scores into score.json and logger

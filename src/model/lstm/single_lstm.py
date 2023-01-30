@@ -2,19 +2,18 @@ import torch
 from torch import nn
 
 from model import Net
-from model.layers.attention import Attention
 from model.layers.fully_connected import FullyConnected
 from modules.logger import log
 
 
-class SingleLstmAttention(Net):
+class SingleLstm(Net):
 	
 	def __init__(self, d_embedding: int, padding_idx: int, vocab_size:int=None, pretrained_embedding=None, n_class=3, **kwargs):
 		"""
-		Delta model has a customized attention layers
+		LSTM model
 		"""
 		
-		super(SingleLstmAttention, self).__init__()
+		super(SingleLstm, self).__init__()
 		# Get model parameters
 		assert not(vocab_size is None and pretrained_embedding is None), 'Provide either vocab size or pretrained embedding'
 		
@@ -25,7 +24,6 @@ class SingleLstmAttention(Net):
 		dropout = kwargs.get('dropout', 0.)
 		self.bidirectional = True  # force to default
 		
-		num_heads = kwargs.get('num_heads', 1)
 		activation = kwargs.get('activation', 'relu')
 		
 		if pretrained_embedding is None:
@@ -45,20 +43,9 @@ class SingleLstmAttention(Net):
 		
 		# Bidirectional
 		d_out_lstm = d_in_lstm * (self.bidirectional + 1)
+		d_fc_out = kwargs.get('d_fc_out', d_out_lstm)
 		
-		d_attn = kwargs.get('d_attn', d_out_lstm)
-		
-		# self.attention = nn.MultiheadAttention(embed_dim=d_hidden_lstm, num_heads=num_heads, dropout=dropout, kdim=d_attn, vdim=d_attn)
-		attention_raw = kwargs.get('attention_raw', False)
-		self.attention = Attention(embed_dim=d_out_lstm, num_heads=num_heads, dropout=dropout, kdim=d_attn, vdim=d_attn, batch_first=True, attention_raw=attention_raw)
-		d_context = d_out_lstm
-		
-		self.concat_context = kwargs.get('concat_context', True) # concatenate by default, to be compatible with other script
-		log.debug(f'concat_context: {self.concat_context}')
-		
-		d_fc_out = kwargs.get('d_fc_out', d_context)
-		
-		d_in_fc_squeeze = d_context + self.concat_context * d_out_lstm  # concat with output from LSTM
+		d_in_fc_squeeze = d_out_lstm  # concat with output from LSTM
 		self.fc_squeeze = FullyConnected(d_in_fc_squeeze, d_fc_out, activation=activation, dropout=dropout)
 		
 		n_fc_out = kwargs.get('n_fc_out', 0)
@@ -91,7 +78,6 @@ class SingleLstmAttention(Net):
 		# h = hidden_dim = embedding_size
 		# C = n_class
 		ids = input_['ids']
-		mask = input_.get('mask', torch.zeros_like(ids))
 		
 		# Reproduce hidden representation from LSTM
 		x = self.embedding(ids)
@@ -102,26 +88,15 @@ class SingleLstmAttention(Net):
 		h_last = h_last[-self.d:].permute(1, 0, 2)      # (N, n_direction, d_hidden_lstm)
 		h_last = h_last.reshape(h_last.size(0), 1, -1)  # (N, 1, n_direction * d_hidden_lstm)
 		
-		# Compute attention
-		# context.size() == (N, 1, d_attention)
-		# attn_weight.size() == (N, 1, L)
-		context, attn_weights = self.attention(query=h_last, key=h_seq, value=h_seq, key_padding_mask=mask)
-		context = context.squeeze(dim=1)
 		h_last = h_last.squeeze(dim=1)
 		
-		if self.concat_context:
-			x = torch.cat([context, h_last], dim=1)
-		else:
-			x = context
-		x = self.fc_squeeze(x)  # (N, d_fc_out)
+		x = self.fc_squeeze(h_last)  # (N, d_fc_out)
 		
 		for fc in self.fc_out:
 			x = fc(x)  # (N, d_fc_out) unchanged
 		out = self.classifier(x)  # (N, n_class)
 		
-		attn_weights = attn_weights.squeeze(1)
-		
-		return out, attn_weights
+		return out
 
 
 if __name__ == '__main__':
@@ -173,7 +148,7 @@ if __name__ == '__main__':
 	
 	y = torch.tensor(y, dtype=torch.long)
 	
-	model = SingleLstmAttention(d_in=300, dropout=0, d_fc_lstm=-1, d_fc_attentiion=-1, d_context=-1, n_class=3, n_fc_out=0)
+	model = SingleLstm(d_in=300, dropout=0, d_fc_lstm=-1, d_fc_attentiion=-1, d_context=-1, n_class=3, n_fc_out=0)
 	
 	model.train()
 	

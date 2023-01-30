@@ -2,10 +2,13 @@ import os
 from os import path
 import json
 from argparse import ArgumentParser
+
+import pandas as pd
 from codecarbon import EmissionsTracker, OfflineEmissionsTracker
 
 from modules import report_score
 from modules.const import *
+from modules.inferences.prediction_writer import ParquetPredictionWriter, JsonPredictionWriter
 from modules.logger import init_logging
 from modules.logger import log
 
@@ -41,13 +44,13 @@ def get_carbon_tracker(args) -> EmissionsTracker:
 	if args.track_carbon == TrackCarbon.ONLINE:
 		tracker = EmissionsTracker(
 			project_name=f'{args.name}/{args.version}',
-			output_dir=logger.log_dir,
+			output_dir=LOG_DIR,
 			log_level='critical'
 		)
 	elif args.track_carbon == TrackCarbon.OFFLINE:
 		tracker = OfflineEmissionsTracker(
 			project_name=f'{args.name}/{args.version}',
-			output_dir=logger.log_dir,
+			output_dir=LOG_DIR,
 			log_level='critical',
 			country_iso_code='FRA'
 		)
@@ -224,6 +227,9 @@ if __name__ == '__main__':
 		version=args.version,
 		default_hp_metric=False # deactivate hp_metric on tensorboard visualization
 	)
+	LOG_DIR = logger.log_dir
+	
+	pred_writer = JsonPredictionWriter(output_dir=path.join(LOG_DIR, 'predictions'), write_interval='batch')
 	
 	trainer = pl.Trainer(
 		max_epochs=args.epoch,
@@ -234,7 +240,7 @@ if __name__ == '__main__':
 		logger=logger,
 		strategy=args.strategy,
 		fast_dev_run=args.fast_dev_run,
-		callbacks=[early_stopping, model_checkpoint],
+		callbacks=[early_stopping, model_checkpoint, pred_writer],
 		track_grad_norm=args.track_grad_norm, # track_grad_norm=2 for debugging
 		detect_anomaly=args.detect_anomaly, # deactivate on large scale experiemnt
 		benchmark=False,    # benchmark = False better time in NLP
@@ -243,8 +249,8 @@ if __name__ == '__main__':
 	)
 	
 	# Set up output path
-	ckpt_path = path.join(logger.log_dir, 'checkpoints', 'best.ckpt')
-	hparams_path = path.join(logger.log_dir, 'hparams.yaml')
+	ckpt_path = path.join(LOG_DIR, 'checkpoints', 'best.ckpt')
+	hparams_path = path.join(LOG_DIR, 'hparams.yaml')
 	
 	if args.train:
 		model = ModelModule(**model_args)
@@ -261,20 +267,21 @@ if __name__ == '__main__':
 		report_score(scores, logger, args.test_path)
 	
 	if args.predict:
-		# TODO complete: make a new parquet file to save predictions along dataset
-		predictions = trainer.predict(
+		PREDICT_PATH = path.join(LOG_DIR, 'predictions')
+		os.makedirs(PREDICT_PATH, exist_ok=True)
+		trainer.predict(
 			model=model,
-			datamodule=dm
+			datamodule=dm,
+			return_predictions=False
 		)
 		
-		log.warning('Prediction incompleted')
+		files = [path.join(PREDICT_PATH, f) for f in os.listdir(path.join(LOG_DIR, 'predictions')) if f != 'inference.parquet']
+		predictions = [pd.read_parquet(f) for f in files]
+		df = pd.concat(predictions, ignore_index=True)
+		df.to_parquet(path.join(PREDICT_PATH, 'inference.parquet'))
+		for f in files:
+			os.remove(f)
 		
-		#predict_path = path.join(logger.log_dir, f'predict.txt')
-		
-		#with open(predict_path, 'w') as fp:
-		#	fp.write(predictions)
-		#	log.info(f'Predictions are saved at {predict_path}')
-	
 	if tracker is not None:
 		emission = tracker.stop()
 		emission_str = f'Total emission in experiment trial: {emission} kgs'
