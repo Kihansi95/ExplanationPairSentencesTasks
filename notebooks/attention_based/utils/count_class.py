@@ -62,6 +62,9 @@ def search_rep(model, dm, mean_calc: bool = False):
             # the prediction we make
             cl = output["logits"].argmax(dim=-1)
 
+            mask = (~padding_mask).float().unsqueeze(-1).repeat(1, 1, 300)
+            nb_tokens = (~padding_mask).sum(dim=-1).unsqueeze(-1).repeat(1, 300)
+
             for i in range(bs):
                 # prediction equals the class and the prediction is good
                 # we treat here the element i of the batch.
@@ -78,15 +81,15 @@ def search_rep(model, dm, mean_calc: bool = False):
                             rep_k.append(output["key_embeddings"][lay][i, 0, :])
                             rep_v.append(output["value_embeddings"][lay][i, 0, :])
                         else:
-                            rep_k.append(output["key_embeddings"][lay][i, :, :].mean(dim=0))
-                            rep_v.append(output["value_embeddings"][lay][i, :, :].mean(dim=0))
+                            # we delete all the masks embeddings
+                            rep_k.append((output["key_embeddings"][lay][i, :, :]*mask[i, :, :]).sum(dim=0)/nb_tokens[i, :])
+                            rep_v.append((output["value_embeddings"][lay][i, :, :]*mask[i, :, :]).sum(dim=0)/nb_tokens[i, :])
 
                     for lay in range(len(output["hidden_states"])):
                         if ~mean_calc:
                             rep_emb.append(output["hidden_states"][lay][i, 0, :])
                         else:
-                            rep_emb.append(output["hidden_states"][lay][i, 0, :].mean(dim=0))
-
+                            rep_emb.append((output["hidden_states"][lay][i, :, :]*mask[i, :, :]).sum(dim=0)/nb_tokens[i, :])
 
                     res[f"class_{class_rep}"] = {
                         "key": rep_k,
