@@ -19,6 +19,7 @@ from modules.const import Mode, SpecToken
 from modules.logger import log
 from modules import metrics, rescale, INF
 from modules.loss import IoU, KLDivLoss
+from modules.maths import mean
 
 
 class DualLSTMAttentionModule(pl.LightningModule):
@@ -118,6 +119,7 @@ class DualLSTMAttentionModule(pl.LightningModule):
 		y_true = batch['y_true']
 		padding_mask = batch['padding_mask']
 		a_true = batch['a_true']
+		heuristic = batch['heuristic']
 		
 		y_hat, a_hat = self(
 			premise_ids=batch['premise_ids'],
@@ -129,7 +131,7 @@ class DualLSTMAttentionModule(pl.LightningModule):
 		loss_classif = self.loss_fn(y_hat, y_true)
 		
 		loss_entropy_pair = {s: metrics.entropy(a_hat[s], padding_mask[s], normalize=True, average='micro') for s in a_hat}
-		loss_entropy = sum(loss_entropy_pair.values()) / len(loss_entropy_pair)
+		loss_entropy = mean(loss_entropy_pair)
 		
 		# Sigmoid for IoU loss
 		flat_a_hat = [self.flatten_attention(attention=a_hat[s], condition=y_true > 0, pad_mask=padding_mask[s], normalize='sigmoid') for s in a_hat]
@@ -143,12 +145,17 @@ class DualLSTMAttentionModule(pl.LightningModule):
 		else:
 			loss_supervise = self.supervise_loss_fn(flat_a_hat, flat_a_true)
 		
+		loss_heuristic_pair = {s: self.heuristic_loss_fn(a_hat[s].log_softmax(dim=1), heuristic[s]) for s in a_hat}
+		loss_heuristic = mean(loss_heuristic_pair)
+		
 		loss = loss_classif + self.lambda_entropy * loss_entropy \
-		       + self.lambda_supervise * loss_supervise
+		       + self.lambda_supervise * loss_supervise \
+		       + self.lambda_heuristic * loss_heuristic
 		
 		return {'loss': loss,
 		        'loss_entropy': loss_entropy,
 		        'loss_supervise': loss_supervise,
+		        'loss_heuristic': loss_heuristic,
 		        'y_hat': y_hat, 'y_true': y_true, 'a_hat': a_hat, 'a_true': a_true, 'padding_mask': padding_mask}
 	
 	def validation_step(self, batch, batch_idx):

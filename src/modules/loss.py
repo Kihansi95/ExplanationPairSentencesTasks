@@ -3,31 +3,46 @@ from torch import Tensor
 from torch.nn.modules.loss import _Loss, KLDivLoss
 
 # https://github.com/kevinzakka/pytorch-goodies/blob/master/losses.py
+from modules import INF
 from modules.logger import log
 
 
 class IoU(_Loss):
-	"""
-	Computes the Jaccard loss, a.k.a the IoU loss.
-    Note that PyTorch optimizers minimize a loss. In this
-    case, we would like to maximize the jaccard loss so we
-    return the negated jaccard loss.
-    Args:
-        eps: added to the denominator for numerical stability.
-    Returns:
-        jacc_loss: the Jaccard loss.
-    """
 	
-	def __init__(self, eps:float=1e-7, normalize=None, size_average=None, reduce=None, reduction: str = 'mean',):
-		super(IoU, self).__init__(size_average, reduce, reduction)
+	def __init__(self, eps:float=1e-7, normalize=None, **kwargs):
+		
+		"""Computes the Jaccard loss, a.k.a the IoU loss.
+		
+		Parameters
+		----------
+		eps : float, optional, default=1e-7
+			added to the denominator for numerical stability.
+		normalize : ??
+		
+		Notes
+		----------
+		PyTorch optimizers minimize a loss. In this case, we would like to maximize the jaccard loss so return the negated jaccard loss.
+		
+		"""
+		super(IoU, self).__init__(**kwargs)
 		self.eps = eps
 		self.normalize = normalize
 		
 	def forward(self, input: Tensor, target: Tensor) -> Tensor:
 		"""
-		Args:
-			input ():  a tensor of shape [B, C, H, W]. Corresponds to the raw output or logits of the model.
-			target (): a tensor of shape [B, H, W] or [B, 1, H, W].
+		
+		Parameters
+		----------
+		input : torch.Tensor
+			shape `[B, C, H, W]`. Corresponds to the raw output or logits of the model
+		target : torch.Tensor
+			shape `[B, H, W]` or `[B, 1, H, W]`
+			
+		Returns
+		-------
+		torch.Tensor
+			output tensor of shape `[B, 1]`
+
 		"""
 		if self.normalize is None:
 			self.normalize = (input.abs() > 1.).any()
@@ -45,21 +60,18 @@ class IoU(_Loss):
 
 
 class KLDivLoss(KLDivLoss):
-	"""
-		Overriding Pytorch's KLDivLoss. This version we fix -inf to a very small number (-1e30) to avoid nan.
-	    Args:
-	        inf: added to the denominator for numerical stability.
-	    Returns:
-	        jacc_loss: the Jaccard loss.
-	    """
 	
-	INF = 1e30
-	
-	def __init__(self, size_average=None, reduce=None, reduction: str = 'mean', log_target: bool = False):
-		super(KLDivLoss, self).__init__(size_average, reduce, reduction, log_target)
+	def __init__(self, **kwargs):
+		"""Overriding Pytorch's KLDivLoss. This version we fix -inf to a very small number (-1e30) to avoid nan.
+		
+		Parameters
+		----------
+		**kwargs : See `KLDivLoss Pytorch <https://pytorch.org/docs/stable/generated/torch.nn.KLDivLoss.html>`
+		"""
+		super(KLDivLoss, self).__init__(**kwargs)
 		
 	def forward(self, input: Tensor, target: Tensor) -> Tensor:
-		return super(KLDivLoss, self).forward(input.masked_fill(input.isinf(), -self.INF), target.masked_fill(target.isinf(), -self.INF))
+		return super(KLDivLoss, self).forward(input.masked_fill(input.isinf(), -INF), target.masked_fill(target.isinf(), -INF))
 		
 
 if __name__ == '__main__':

@@ -19,13 +19,12 @@ from pytorch_lightning import callbacks as cb
 from model_module import *
 
 def get_num_workers() -> int:
-	"""
-	Get maximum logical workers that a machine has
-	Args:
-		default (int): default value
-
-	Returns:
-		maximum workers number
+	"""Get maximum logical workers that a machine has
+	
+	Returns
+	-------
+	num_workers : int
+		maximum workers number possible
 	"""
 	if hasattr(os, 'sched_getaffinity'):
 		try:
@@ -37,6 +36,17 @@ def get_num_workers() -> int:
 	return num_workers if num_workers is not None else 0
 
 def get_carbon_tracker(args) -> EmissionsTracker:
+	"""Get carbon tracker based on argument
+	
+	Parameters
+	----------
+	args : Any
+
+	Returns
+	-------
+	tracker : EmissionsTracker
+		Eeither online, offline tracker if we precise --carbon_tracker. None if this argument is absent.
+	"""
 	
 	if args.track_carbon is None:
 		return None
@@ -58,15 +68,22 @@ def get_carbon_tracker(args) -> EmissionsTracker:
 	tracker.start()
 	return tracker
 
-def parse_argument(prog: str = __name__, description: str = 'Train LSTM-based attention') -> dict:
+def parse_argument(prog: str = __name__, description: str = 'Train LSTM-based attention'):
+	"""Parse arguments passed to the script.
+
+	Parameters
+	----------
+	prog : str
+		name of the programme (experimentation)
+	description : str
+		What do we do to this script
+
+	Returns
+	-------
+	args :
+		argument values as dictionary
 	"""
-	Parse arguments passed to the script.
-	Args:
-		prog (str): name of the programme (experimentation)
-		description (str): What do we do to this script
-	Returns:
-		dictionary
-	"""
+
 	parser = ArgumentParser(prog=prog, description=description)
 	
 	# Optional stuff
@@ -167,22 +184,22 @@ if __name__ == '__main__':
 	                 shuffle=args.shuffle)
 	
 	if args.data == 'hatexplain':
-		from data_module.hatexplain import HateXPlainDM
+		from data_module.hatexplain_module import HateXPlainDM
 		dm = HateXPlainDM(**dm_kwargs)
 	elif args.data == 'yelphat':
-		from data_module.yelp_hat import *
+		from data_module.yelp_hat_module import *
 		dm = YelpHatDM(**dm_kwargs)
 	elif args.data == 'yelphat50':
-		from data_module.yelp_hat import *
+		from data_module.yelp_hat_module import *
 		dm = YelpHat50DM(**dm_kwargs)
 	elif args.data == 'yelphat100':
-		from data_module.yelp_hat import *
+		from data_module.yelp_hat_module import *
 		dm = YelpHat100DM(**dm_kwargs)
 	elif args.data == 'yelphat200':
-		from data_module.yelp_hat import *
+		from data_module.yelp_hat_module import *
 		dm = YelpHat200DM(**dm_kwargs)
 	elif args.data == 'esnli':
-		from data_module.esnli import ESNLIDM
+		from data_module.esnli_module import ESNLIDM
 		dm = ESNLIDM(**dm_kwargs)
 	else:
 		log.error(f'Unrecognized dataset: {args.data}')
@@ -204,7 +221,7 @@ if __name__ == '__main__':
 		d_hidden_lstm=args.d_hidden_lstm,
 		d_embedding=args.d_embedding,
 		data=args.data,
-		num_class=dm.num_class
+		num_class=len(dm.LABEL_ITOS)
 	)
 	
 	if dm.input_type == InputType.SINGLE:
@@ -227,9 +244,15 @@ if __name__ == '__main__':
 		version=args.version,
 		default_hp_metric=False # deactivate hp_metric on tensorboard visualization
 	)
-	LOG_DIR = logger.log_dir
 	
-	pred_writer = JsonPredictionWriter(output_dir=path.join(LOG_DIR, 'predictions'), write_interval='batch')
+	LOG_DIR = logger.log_dir
+	PREDICT_PATH = path.join(LOG_DIR, 'predictions')
+	
+	pred_writer = ParquetPredictionWriter(
+		output_dir=PREDICT_PATH,
+		dm=dm,
+		write_interval='batch',
+	)
 	
 	trainer = pl.Trainer(
 		max_epochs=args.epoch,
@@ -267,7 +290,6 @@ if __name__ == '__main__':
 		report_score(scores, logger, args.test_path)
 	
 	if args.predict:
-		PREDICT_PATH = path.join(LOG_DIR, 'predictions')
 		os.makedirs(PREDICT_PATH, exist_ok=True)
 		trainer.predict(
 			model=model,
@@ -275,12 +297,7 @@ if __name__ == '__main__':
 			return_predictions=False
 		)
 		
-		files = [path.join(PREDICT_PATH, f) for f in os.listdir(path.join(LOG_DIR, 'predictions')) if f != 'inference.parquet']
-		predictions = [pd.read_parquet(f) for f in files]
-		df = pd.concat(predictions, ignore_index=True)
-		df.to_parquet(path.join(PREDICT_PATH, 'inference.parquet'))
-		for f in files:
-			os.remove(f)
+		pred_writer.assemble_batch()
 		
 	if tracker is not None:
 		emission = tracker.stop()

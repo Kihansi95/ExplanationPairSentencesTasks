@@ -16,7 +16,6 @@ from modules.const import InputType
 from modules.logger import log
 
 DATASET_NAME = 'yelp-hat'
-NUM_CLASS = 2
 INPUT = InputType.SINGLE
 
 _EXTRACTED_FILES = {
@@ -38,6 +37,8 @@ _SUBSET = {
 _VAL_SPLIT = 0.3
 
 URL = 'https://github.com/cansusen/Human-Attention-for-Text-Classification/archive/205c1552bc7be7ec48623d79d85d4c6fbfe62362.zip'
+
+_LABEL_ITOS = ['negative', 'postive']  # https://github.com/cansusen/Human-Attention-for-Text-Classification
 
 def download_format_dataset(root: str, split: str='yelp'):
 	"""
@@ -151,10 +152,23 @@ def _reformat_dataframe(data: pd.DataFrame):
 
 class YelpHat(MapDataPipe):
 	
-	NUM_CLASS = NUM_CLASS
 	INPUT=INPUT
+	LABEL_ITOS=_LABEL_ITOS
 	
 	def __init__(self, split: str = 'yelp', root: str = path.join(os.getcwd(), '.cache'),  n_data: int = -1):
+		"""
+		
+		Parameters
+		----------
+		split :
+		root :
+		n_data :
+		
+		See Also
+		----------
+			https://github.com/cansusen/Human-Attention-for-Text-Classification
+		
+		"""
 		
 		# assert
 		if split not in _EXTRACTED_FILES.keys():

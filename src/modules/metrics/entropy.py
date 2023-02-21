@@ -3,6 +3,7 @@ from torch import Tensor
 from torchmetrics import Metric
 from torchmetrics.utilities.enums import AverageMethod
 
+from modules.const import INF, EPS
 from modules.logger import log
 from modules.metrics.utils import batch_dot
 
@@ -45,11 +46,7 @@ class Entropy(Metric):
 
     def compute(self):
         return self.cumulate_entropy.float() / (self.n_sample + (self.n_sample == 0))
-
-
-EPS = 1e-10
-INF = 1e30
-
+    
 
 def entropy(preds: Tensor, mask: Tensor = None, normalize: bool = None, average: str = None) -> Tensor:
     """

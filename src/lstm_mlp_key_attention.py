@@ -14,8 +14,8 @@ from torchtext.vocab.vectors import pretrained_aliases as pretrained
 
 import torchmetrics as m
 
-from data_module.hatexplain import HateXPlainDM
-from data_module.yelp_hat import *
+from data_module.hatexplain_module import HateXPlainDM
+from data_module.yelp_hat_module import *
 
 from modules.logger import log, init_logging
 from modules import metrics, env, rescale, INF
@@ -50,7 +50,7 @@ class LitModel(pl.LightningModule):
 			pretrained_embedding=pretrained_vectors,
 			vocab_size=len(vocab),
 			d_embedding=kwargs['d_embedding'],
-			padding_idx=vocab[PAD_TOK],
+			padding_idx=vocab[SpecToken.PAD],
 			n_class=num_class,
 			n_lstm=n_lstm,
 			attention_raw=True)

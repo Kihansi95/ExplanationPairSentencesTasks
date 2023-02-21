@@ -1,5 +1,6 @@
 import os
 
+import numpy as np
 import pandas as pd
 from os import path
 
@@ -37,8 +38,11 @@ class PretransformedESNLI(ESNLI):
 		if path.exists(self.parquet_path):
 			# load the cache file to data if file exist
 			self.data = pd.read_parquet(self.parquet_path)
-			for column in ['premise_tokens', 'hypothesis_tokens', 'premise_rationale', 'hypothesis_rationale', 'premise_heuristic', 'hypothesis_heuristic']:
-				self.data[column] = self.data[column].apply(lambda x: x.tolist())
+			# check
+			for c in self.data.columns:
+				if isinstance(self.data.loc[0,c], np.ndarray):
+					self.data[c] = self.data[c].apply(lambda x: x.tolist())
+				
 		else:
 			segment_path = path.join(root, 'segments')
 			n_data = len(self.data)

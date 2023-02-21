@@ -52,8 +52,7 @@ class PowerJaccard(Metric):
 		if self.average == 'samples':
 			return self.cumulative_iou.float() / self.n_sample
 			
-EPS = 1e-10
-INF = 1e30
+			
 def power_jaccard(preds: Tensor, target: Tensor=None, power:float=1., average:str=None) -> Tensor:
 	"""
 	

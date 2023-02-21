@@ -1,3 +1,3 @@
-from .esnli import *
-from .hatexplain import *
-from .yelp_hat import *
+from .esnli_module import *
+from .hatexplain_module import *
+from .yelp_hat_module import *

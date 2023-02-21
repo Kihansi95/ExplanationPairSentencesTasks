@@ -127,7 +127,7 @@ class DualLstmAttention(Net):
 		for s, s_bar in sides, sides[::-1]:
 			# context.size() == (N, 1, d_attention)
 			# attn_weight.size() == (N, 1, L)
-			context[s_bar], attn_weights[s] = self.attention(query=h_last[s_bar], key=h_seq[s], value=h_seq[s],key_padding_mask=padding_mask[s])
+			context[s_bar], attn_weights[s] = self.attention(query=h_last[s_bar], key=h_seq[s], value=h_seq[s], key_padding_mask=padding_mask[s])
 			context[s_bar] = context[s_bar].squeeze(dim=0)  # context.size() == (N, d_attention)
 			attn_weights[s] = attn_weights[s].squeeze(1)    # attn_weights.size() == (N, L)
 

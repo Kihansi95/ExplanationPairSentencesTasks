@@ -15,14 +15,20 @@ from modules.logger import log, init_logging
 _FIGURES = 'figures'
 _TABLE = 'table'
 
-def parse_argument(prog: str = __name__, description: str = 'Summarize results produced by experiments') -> dict:
-	"""
-	Parse arguments passed to the script.
-	Args:
-		prog (str): name of the programme (experimentation)
-		description (str): What do we do to this script
-	Returns:
-		dictionary
+def parse_argument(prog: str = __name__, description: str = 'Summarize results produced by experiments'):
+	"""Parse arguments passed to the script.
+	
+	Parameters
+	----------
+	prog : str
+		name of the programme (experimentation)
+	description : str
+		What do we do to this script
+
+	Returns
+	-------
+	args :
+		argument values as dictionary
 	"""
 	parser = ArgumentParser(prog=prog, description=description)
 	
@@ -46,8 +52,7 @@ def parse_argument(prog: str = __name__, description: str = 'Summarize results p
 	parser.add_argument('--round', type=int, help='Rounding table in latex')
 	
 	# General arguments
-	parser.add_argument('--log_dir', '-l', type=str, required=True, help='Path where logs is saved, contains different '
-	                                                                     'experimentations set up.')
+	parser.add_argument('--log_dir', '-l', type=str, required=True, help='Path where logs is saved, contains different experimentations set up.')
 	parser.add_argument('--out_dir', '-o', type=str, required=True, help='Output directory')
 	return parser.parse_args()
 

@@ -16,13 +16,12 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning import callbacks as cb
 
 def get_num_workers() -> int:
-	"""
-	Get maximum logical workers that a machine has
-	Args:
-		default (int): default value
-
-	Returns:
-		maximum workers number
+	"""Get maximum logical workers that a machine has
+	
+	Returns
+	-------
+	num_workers : int
+		maximum workers number possible
 	"""
 	if hasattr(os, 'sched_getaffinity'):
 		try:
@@ -164,22 +163,22 @@ if __name__ == '__main__':
 	                 shuffle=args.shuffle)
 	
 	if args.data == 'hatexplain':
-		from data_module.hatexplain import HateXPlainDM
+		from data_module.hatexplain_module import HateXPlainDM
 		dm = HateXPlainDM(**dm_kwargs)
 	elif args.data == 'yelphat':
-		from data_module.yelp_hat import YelpHatDM
+		from data_module.yelp_hat_module import YelpHatDM
 		dm = YelpHatDM(**dm_kwargs)
 	elif args.data == 'yelphat50':
-		from data_module.yelp_hat import YelpHat50DM
+		from data_module.yelp_hat_module import YelpHat50DM
 		dm = YelpHat50DM(**dm_kwargs)
 	elif args.data == 'yelphat100':
-		from data_module.yelp_hat import YelpHat100DM
+		from data_module.yelp_hat_module import YelpHat100DM
 		dm = YelpHat100DM(**dm_kwargs)
 	elif args.data == 'yelphat200':
-		from data_module.yelp_hat import YelpHat200DM
+		from data_module.yelp_hat_module import YelpHat200DM
 		dm = YelpHat200DM(**dm_kwargs)
 	elif args.data == 'esnli':
-		from data_module.esnli import ESNLIDM
+		from data_module.esnli_module import ESNLIDM
 		dm = ESNLIDM(**dm_kwargs)
 	else:
 		log.error(f'Unrecognized dataset: {args.data}')

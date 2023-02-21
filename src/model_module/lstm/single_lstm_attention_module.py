@@ -3,19 +3,20 @@ import warnings
 
 from typing import Union
 
-from torch import optim, nn
+from os import path
 
+import pytorch_lightning as pl
+import torch
+
+from torch import optim, nn
 from torchtext.vocab.vectors import pretrained_aliases as pretrained
 
 import torchmetrics as m
 
-from data_module.yelp_hat import *
-from modules.const import Mode
-
+from model.lstm import SingleLstmAttention
+from modules.const import Mode, SpecToken
 from modules.logger import log
 from modules import metrics, rescale, INF
-
-from model.lstm.single_lstm_attention import SingleLstmAttention
 from modules.loss import IoU, KLDivLoss
 
 
@@ -118,6 +119,7 @@ class SingleLSTMAttentionModule(pl.LightningModule):
 			ids=batch['token_ids'],
 			mask=padding_mask
 		)
+		
 		loss_classif = self.loss_fn(y_hat, y_true)
 		a_hat_entropy = metrics.entropy(a_hat, padding_mask, normalize=True)
 		loss_entropy = a_hat_entropy.mean()
@@ -167,10 +169,11 @@ class SingleLSTMAttentionModule(pl.LightningModule):
 		
 		padding_mask = batch['padding_mask']
 		y_hat, a_hat = self(
-			premise_ids=batch['premise_ids'],
-			hypothesis_ids=batch['hypothesis_ids'],
-			premise_padding=padding_mask['premise'],
-			hypothesis_padding=padding_mask['hypothesis'])
+			ids=batch['token_ids'],
+			mask=batch['padding_mask']
+		)
+		a_hat = a_hat.detach()
+		a_hat = self.model.softmax(a_hat)
 		
 		return {'y_hat': y_hat.argmax(axis=-1),
 		        'a_hat': a_hat,
@@ -213,19 +216,20 @@ class SingleLSTMAttentionModule(pl.LightningModule):
 		return self.step_end(outputs, stage='TEST')
 	
 	def flatten_attention(self, attention, pad_mask, condition=None, normalize: str = ''):
-		"""
-		Filter attention
-		Args:
-		 a_hat ():
-		 a_true ():
-		 condition ():
-		 pad_mask ():
-		 y_hat ():
-		 normalize (str): softmax, softmax_rescale, sigmoid
+		"""Filter attention
+		
+		Parameters
+		----------
+		attention :
+		pad_mask :
+		condition :
+		normalize : softmax, softmax_rescale, sigmoid
 
-		Returns:
+		Returns
+		-------
 
 		"""
+		
 		if condition is None:
 			condition = torch.ones(attention.size(0)).type(torch.bool)
 		

@@ -1,8 +1,7 @@
 from typing import Optional, List, Any
 
-import torch
 from torch import Tensor
-from torchmetrics import functional as F, Metric
+from torchmetrics import Metric
 
 #TODO: maybe abandone
 class AUCModule(Metric):

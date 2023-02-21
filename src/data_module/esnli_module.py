@@ -2,10 +2,12 @@ import pickle
 import sys
 from os import path
 
+import pandas as pd
 import pytorch_lightning as pl
 import spacy
 import torch
 import torchtext.transforms as T
+from data import transforms as t
 from torch.utils.data import DataLoader
 from torchtext.vocab import build_vocab_from_iterator, GloVe
 from tqdm import tqdm
@@ -14,8 +16,8 @@ from transformers import BertTokenizer
 from data.esnli.pretransform_dataset import PretransformedESNLI
 from data.esnli.transforms import HighlightTransform, HeuristicTransform
 from data.transforms import LemmaLowerTokenizerTransform
-from modules import env
-from modules.const import SpecToken
+from modules import env, INF
+from modules.const import SpecToken, Normalization
 from modules.logger import log
 
 
@@ -30,8 +32,8 @@ class ESNLIDM(pl.LightningDataModule):
         self.n_data = n_data
         self.num_workers = num_workers
         self.shuffle = shuffle
-        self.num_class = PretransformedESNLI.NUM_CLASS
         self.input_type = PretransformedESNLI.INPUT
+        self.LABEL_ITOS = PretransformedESNLI.LABEL_ITOS
 
         spacy_model = spacy.load('en_core_web_sm')
         tokenizer_transform = LemmaLowerTokenizerTransform(spacy_model)
@@ -39,7 +41,7 @@ class ESNLIDM(pl.LightningDataModule):
         heuristic_transform = HeuristicTransform(
             vectors=GloVe(cache=path.join(cache_path, '..', '.vector_cache')),
             spacy_model=spacy_model,
-            normalize='log_softmax'
+            cache=cache_path
         )
 
         self.transformations = {
@@ -75,8 +77,7 @@ class ESNLIDM(pl.LightningDataModule):
                 return [token for sentence in batch['premise_tokens'] + batch['hypothesis_tokens'] for token in
                         sentence]
 
-            train_set = PretransformedESNLI(transformations=self.transformations, column_name=self.rename_columns,
-                                            root=self.cache_path, split='train', n_data=self.n_data)
+            train_set = PretransformedESNLI(transformations=self.transformations, column_name=self.rename_columns, root=self.cache_path, split='train', n_data=self.n_data)
 
             # build vocab from train set
             dp = train_set.batch(self.batch_size).map(self.list2dict).map(flatten_token)
@@ -111,7 +112,12 @@ class ESNLIDM(pl.LightningDataModule):
         )
 
         self.rationale_transform = T.Sequential(
-            T.ToTensor(padding_value=0)
+            t.ToTensor(padding_value=0)
+        )
+
+        self.heuristic_transform = T.Sequential(
+            t.ToTensor(padding_value=-INF, dtype=torch.float32),
+            t.NormalizationTransform(normalize=Normalization.LOG_SOFTMAX)
         )
 
         self.label_transform = T.Sequential(
@@ -120,7 +126,7 @@ class ESNLIDM(pl.LightningDataModule):
         )
 
     def setup(self, stage: str = None):
-        dataset_kwargs = dict(root=self.cache_path, n_data=self.n_data, transformations=self.transformations, column_name=self.rename_columns, )
+        dataset_kwargs = dict(root=self.cache_path, n_data=self.n_data, transformations=self.transformations, column_name=self.rename_columns)
 
         # called on every GPU
         if stage == 'fit' or stage is None:
@@ -142,6 +148,15 @@ class ESNLIDM(pl.LightningDataModule):
     def predict_dataloader(self):
         return self.test_dataloader()
 
+    def format_predict(self, prediction: pd.DataFrame):
+        
+        # replace label
+        label_columns = ['y_hat', 'y_true']
+        label_itos = {idx: val for idx, val in enumerate(self.LABEL_ITOS)}
+        prediction.replace({c: label_itos for c in label_columns}, inplace=True)
+        
+        return prediction
+
     ## ======= PRIVATE SECTIONS ======= ##
 
     def collate(self, batch):
@@ -155,14 +170,18 @@ class ESNLIDM(pl.LightningDataModule):
                 'premise': self.rationale_transform(b['premise_rationale']),
                 'hypothesis': self.rationale_transform(b['hypothesis_rationale']),
             },
-            'y_true': self.label_transform(b['label'])
+            'y_true': self.label_transform(b['label']),
+            'heuristic' : {
+                'premise': self.heuristic_transform(b['premise_heuristic']),
+                'hypothesis': self.heuristic_transform(b['hypothesis_heuristic']),
+            }
         })
 
         b['padding_mask'] = {
             'premise': b['premise_ids'] == self.vocab[SpecToken.PAD],
             'hypothesis': b['hypothesis_ids'] == self.vocab[SpecToken.PAD],
         }
-
+        
         return b
 
     def list2dict(self, batch):
@@ -237,7 +256,7 @@ class BertESNLIDM(pl.LightningDataModule):
         )
 
         self.label_transform = T.Sequential(
-            T.LabelToIndex(['neutral', 'entailment', 'contradiction']),
+            T.LabelToIndex(PretransformedESNLI.LABEL_ITOS),
             T.ToTensor()
         )
 

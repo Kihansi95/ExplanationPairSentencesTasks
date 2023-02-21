@@ -1,6 +1,8 @@
 import pickle
 import sys
 
+import numpy as np
+import pandas as pd
 import pytorch_lightning as pl
 import torch
 from torch.utils.data import DataLoader
@@ -13,7 +15,7 @@ from os import path
 
 from data.transforms import EntropyTransform
 from modules import env
-from modules.const import Normalization, SpecToken
+from modules.const import Normalization, SpecToken, INF
 from modules.logger import log
 
 
@@ -28,8 +30,8 @@ class HateXPlainDM(pl.LightningDataModule):
         self.n_data = n_data
         self.num_workers = num_workers
         self.shuffle = shuffle
-        self.num_class = HateXPlain.NUM_CLASS
         self.input_type = HateXPlain.INPUT
+        self.LABEL_ITOS = HateXPlain.LABEL_ITOS
 
     def prepare_data(self):
         # called only on 1 GPU
@@ -54,15 +56,13 @@ class HateXPlainDM(pl.LightningDataModule):
             dp = train_set.batch(self.batch_size).map(self.list2dict).map(flatten_token)
 
             # Build vocabulary from iterator. We don't know yet how long does it take
-            iter_tokens = tqdm(iter(dp), desc='Building vocabulary', total=len(dp), unit='sents', file=sys.stdout,
-                               disable=env.disable_tqdm)
+            iter_tokens = tqdm(iter(dp), desc='Building vocabulary', total=len(dp), unit='sents', file=sys.stdout, disable=env.disable_tqdm)
             if env.disable_tqdm: log.info(f'Building vocabulary')
             vocab = build_vocab_from_iterator(iterator=iter_tokens, specials=[SpecToken.PAD, SpecToken.UNK])
             vocab.set_default_index(vocab[SpecToken.UNK])
 
             # Announce where we save the vocabulary
-            torch.save(vocab, self.vocab_path,
-                       pickle_protocol=pickle.HIGHEST_PROTOCOL)  # Use highest protocol to speed things up
+            torch.save(vocab, self.vocab_path, pickle_protocol=pickle.HIGHEST_PROTOCOL)  # Use highest protocol to speed things up
             iter_tokens.set_postfix({'path': self.vocab_path})
             if env.disable_tqdm: log.info(f'Vocabulary is saved at {self.vocab_path}')
             iter_tokens.close()
@@ -83,11 +83,11 @@ class HateXPlainDM(pl.LightningDataModule):
         )
 
         self.rationale_transform = T.Sequential(
-            T.ToTensor(padding_value=0)
+            t.ToTensor(padding_value=0)
         )
 
         self.label_transform = T.Sequential(
-            T.LabelToIndex(['normal', 'hatespeech', 'offensive']),
+            T.LabelToIndex(HateXPlain.LABEL_ITOS),
             T.ToTensor()
         )
 
@@ -95,7 +95,8 @@ class HateXPlainDM(pl.LightningDataModule):
 
         self.heuristic_transform = T.Sequential(
             t.ToTensor(padding_value=0., dtype=torch.float),
-            t.NormalizationTransform(normalize=Normalization.LOG_STANDARD)
+            t.ReplaceTransform(value=0, replace_by=-INF),
+            t.NormalizationTransform(normalize=Normalization.LOG_SOFTMAX)
         )
 
     def setup(self, stage: str = None):
@@ -103,32 +104,51 @@ class HateXPlainDM(pl.LightningDataModule):
 
         # called on every GPU
         if stage == 'fit' or stage is None:
-            self.train_set = HateXPlain(split='train', **dataset_kwargs)
-            self.val_set = HateXPlain(split='val', **dataset_kwargs)
+            if not hasattr(self, 'train_set'):
+                self.train_set = HateXPlain(split='train', **dataset_kwargs)
+            if not hasattr(self, 'val_set'):
+                self.val_set = HateXPlain(split='val', **dataset_kwargs)
 
-        if stage == 'test' or stage is None:
+        if stage == 'test' or stage == 'predict' or stage is None:
             self.test_set = HateXPlain(split='test', **dataset_kwargs)
 
     def train_dataloader(self):
-        return DataLoader(self.train_set, batch_size=self.batch_size, shuffle=self.shuffle, collate_fn=self.collate,
-                          num_workers=self.num_workers)
+        return DataLoader(self.train_set, batch_size=self.batch_size, shuffle=self.shuffle, collate_fn=self.collate, num_workers=self.num_workers)
 
     def val_dataloader(self):
-        return DataLoader(self.val_set, batch_size=self.batch_size, shuffle=False, collate_fn=self.collate,
-                          num_workers=self.num_workers)
+        return DataLoader(self.val_set, batch_size=self.batch_size, shuffle=False, collate_fn=self.collate, num_workers=self.num_workers)
 
     def test_dataloader(self):
-        return DataLoader(self.test_set, batch_size=self.batch_size, shuffle=True, collate_fn=self.collate,
-                          num_workers=self.num_workers)
+        return DataLoader(self.test_set, batch_size=self.batch_size, shuffle=False, collate_fn=self.collate, num_workers=self.num_workers)
 
     def predict_dataloader(self):
         return self.test_dataloader()
+
+    def format_predict(self, prediction: pd.DataFrame):
+    
+        # replace label
+        label_columns = ['y_hat', 'y_true']
+        label_itos = {idx: val for idx, val in enumerate(self.LABEL_ITOS)}
+        prediction.replace({c: label_itos for c in label_columns}, inplace=True)
+    
+        # normalize heuristic into distribution
+        sum_heuris = prediction['heuristic'].apply(lambda x: sum(x))
+        if (sum_heuris < 0).any():
+            prediction['heuristic'] = prediction['heuristic'].apply(lambda x: np.exp(x).tolist())
+    
+        if 'text_tokens' not in prediction.columns:
+            itos = self.vocab.get_itos()
+            text_tokens = [[itos[ids] for ids in token_ids] for token_ids in prediction['token_ids'].tolist()]
+            prediction['text_tokens'] = pd.Series(text_tokens)
+    
+    
+        return prediction
 
     ## ======= PRIVATE SECTIONS ======= ##
     def collate(self, batch):
         # prepare batch of data for dataloader
         batch = self.list2dict(batch)
-
+    
         b = {
             'post_tokens': batch['post_tokens'],
             'rationale': batch['rationale'],
@@ -150,11 +170,10 @@ class HateXPlainDM(pl.LightningDataModule):
 
 
 class CLSTokenHateXPlainDM(HateXPlainDM):
-    """
-    Adapation of HateXPlain Datamodule for Pur attention models. This adaptor with concatenate a special token CLS
-    """
-
+    
     def __init__(self, **kwargs):
+        """Adapation of HateXPlain Datamodule for Pur attention models. This adaptor with concatenate a special token CLS
+        """
         super(CLSTokenHateXPlainDM, self).__init__(**kwargs)
 
     def prepare_data(self):

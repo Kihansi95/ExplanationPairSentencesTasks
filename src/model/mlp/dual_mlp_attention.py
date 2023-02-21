@@ -15,8 +15,23 @@ class DualMlpAttention(nn.Module):
 	             n_class=3,
 	             concat_context=True,
 	             **kwargs):
-		"""
-		Delta model has a customized attention layers
+		"""Perceptron-based attention model
+		
+		Parameters
+		----------
+		d_embedding : int
+			embedding dimension
+		padding_idx : int
+			index of padding in vocabulary
+		vocab_size : int, optional
+			vocabulary size
+		pretrained_embedding : torch.tensor, optional, default=None
+			If `pretrained_embedding` is not given (None), the model initiate from uniform distribution
+		n_class : int
+			number of class to predict.
+		concat_context : boolean, default=False
+			Whether to concat the context vector (from attention) and the query vector.
+		**kwargs : other arguments
 		"""
 		
 		super(DualMlpAttention, self).__init__()
@@ -86,14 +101,20 @@ class DualMlpAttention(nn.Module):
 		self.d = 1 + int(self.lstm.bidirectional)
 		
 	def forward_lstm(self, x: torch.LongTensor):
+		"""Contextualize each branch by lstm
+		
+		Parameters
+		----------
+		x : `torch.LongTensor`
+			embedding of shape `(N, d_embedding)`
+			
+		Returns
+		-------
+		hidden : `torch.Tensor` of shape `(N, L, n_direction * d_hidden_lstm)`
+		hseq : `torch.Tensor` of shape `(N, L, n_direction * d_hidden_lstm)`
+		
 		"""
-        Contextualize each branch by lstm
-
-        Args:
-            x: embedding
-
-        Returns:
-        """
+		
 		x = self.embedding(x)
 		n_direction = int(self.bidirectional) + 1
 		

@@ -11,9 +11,10 @@ import numpy as np
 from data.hatexplain.transforms import HeuristicTransform
 from data.yelp_hat.dataset import YelpHat, DATASET_NAME
 from data.yelp_hat.utils import yelp_hat_ham, yelp_hat_token
+from modules import INF, map_np2list
 from modules.logger import log
 	
-def _reformat_dataframe(data: pd.DataFrame, spacy_model=None, lemma:bool=True, lower:bool=True):
+def _reformat_dataframe(data: pd.DataFrame, spacy_model=None, lemma:bool=True, lower:bool=True, cache=os.getcwd()):
 	
 	if spacy_model is None: spacy_model=spacy.load('en_core_web_sm')
 	
@@ -37,10 +38,8 @@ def _reformat_dataframe(data: pd.DataFrame, spacy_model=None, lemma:bool=True, l
 	data['cam'] = data.apply(lambda row: row['ham_0'] * row['ham_1'] * row['ham_2'], axis=1)
 	data['sam'] = data.apply(lambda row: ((row['ham_0'] + row['ham_1'] + row['ham_2']) > 0).astype(int), axis=1)
 	
-	
 	# convert numpy into list:
-	for column in ['ham_0', 'ham_1', 'ham_2', 'ham', 'cam', 'sam']:
-		data[column] = data[column].apply(lambda x: x.tolist())
+	data = map_np2list(data)
 	
 	if (data.text_tokens.str.len() != data.ham_0.str.len()).any():
 		mismatch_index = data.index[data.text_tokens.str.len() != data.ham_0.str.len()]
@@ -50,7 +49,10 @@ def _reformat_dataframe(data: pd.DataFrame, spacy_model=None, lemma:bool=True, l
 	heuristic_transform = HeuristicTransform(
 		batch_tokens=data['text_tokens'],
 		batch_rationale=data['ham'],
-		pos_filter=['NOUN', 'VERB', 'ADJ'])
+		spacy_model=spacy_model,
+		mask_value=0,
+		cache=cache)
+	
 	heuristics = heuristic_transform(data['text_tokens'].tolist())
 	data['heuristic'] = pd.Series(heuristics)
 	
@@ -69,10 +71,9 @@ class SpacyPretokenizeYelpHat(YelpHat):
 		
 		if path.exists(self.parquet_path):
 			self.data = pd.read_parquet(self.parquet_path)
-			for col in ['text_tokens', 'ham_0', 'ham_1', 'ham_2', 'ham', 'cam', 'sam', 'heuristic']:
-				self.data[col] = self.data[col].apply(lambda x: x.tolist())
+			self.data = map_np2list(self.data)
 		else:
-			self.data = _reformat_dataframe(self.data, spacy_model, lemma, lower)
+			self.data = _reformat_dataframe(self.data, spacy_model, lemma, lower, cache=root)
 			self.data.to_parquet(self.parquet_path)
 			log.info(f'Save yelp subset {split} at: {self.parquet_path}')
 		

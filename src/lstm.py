@@ -162,22 +162,22 @@ if __name__ == '__main__':
 	                 shuffle=args.shuffle)
 	
 	if args.data == 'hatexplain':
-		from data_module.hatexplain import HateXPlainDM
+		from data_module.hatexplain_module import HateXPlainDM
 		dm = HateXPlainDM(**dm_kwargs)
 	elif args.data == 'yelphat':
-		from data_module.yelp_hat import *
+		from data_module.yelp_hat_module import *
 		dm = YelpHatDM(**dm_kwargs)
 	elif args.data == 'yelphat50':
-		from data_module.yelp_hat import *
+		from data_module.yelp_hat_module import *
 		dm = YelpHat50DM(**dm_kwargs)
 	elif args.data == 'yelphat100':
-		from data_module.yelp_hat import *
+		from data_module.yelp_hat_module import *
 		dm = YelpHat100DM(**dm_kwargs)
 	elif args.data == 'yelphat200':
-		from data_module.yelp_hat import *
+		from data_module.yelp_hat_module import *
 		dm = YelpHat200DM(**dm_kwargs)
 	elif args.data == 'esnli':
-		from data_module.esnli import ESNLIDM
+		from data_module.esnli_module import ESNLIDM
 		dm = ESNLIDM(**dm_kwargs)
 	else:
 		log.error(f'Unrecognized dataset: {args.data}')
@@ -267,7 +267,7 @@ if __name__ == '__main__':
 		
 		log.warning('Prediction incompleted')
 		
-		#predict_path = path.join(logger.log_dir, f'predict.txt')
+		#predict_path = path.join(logger.log_dir, f'predict.words')
 		
 		#with open(predict_path, 'w') as fp:
 		#	fp.write(predictions)

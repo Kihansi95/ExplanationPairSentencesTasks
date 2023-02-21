@@ -1,7 +1,6 @@
 import os
 import shutil
 
-import datasets
 import pandas
 import pandas as pd
 from os import path
@@ -13,12 +12,12 @@ from torch.utils.data import MapDataPipe
 import numpy as np
 
 from data import ArgumentError
+from modules import map_np2list
 from data.hatexplain.transforms import HeuristicTransform
-from modules.const import InputType
+from modules.const import InputType, INF
 from modules.logger import log
 
 DATASET_NAME = 'hatexplain'
-NUM_CLASS = 3
 INPUT = InputType.SINGLE
 
 _EXTRACTED_FILES = {
@@ -27,14 +26,23 @@ _EXTRACTED_FILES = {
 	'test': 'test.parquet',
 }
 
+_HF_LABEL_ITOS = ['hatespeech', 'normal', 'offensive'] # huggingface's label
+_LABEL_ITOS = ['normal', 'hatespeech', 'offensive'] # custom label
+
 
 def download_format_dataset(root: str, split: str):
-	"""
-	Download and reformat dataset of eSNLI
-	Args:
-		root (str): cache folder where to find the dataset.
-		split (str): among train, val, test
-		n_data (int): maximum data to load. -1 to load entire data
+	"""Download and reformat dataset of eSNLI
+	
+	Parameters
+	----------
+	root : str
+		cache folder where to find the dataset.
+	split : str
+
+	Returns
+	-------
+	str
+		path to cache file
 	"""
 	
 	if path.basename(root) != DATASET_NAME:
@@ -48,9 +56,10 @@ def download_format_dataset(root: str, split: str):
 	
 	# download the dataset
 	dataset = load_dataset(DATASET_NAME, split=huggingface_split, cache_dir=root)
+	dataset = dataset.flatten()
 	
 	# Correct the example
-	df = _reformat_dataframe(dataset.to_pandas(), split)
+	df = _reformat_dataframe(dataset.to_pandas(), split, cache=root)
 	df.to_parquet(parquet_path)
 	log.info(f'Process {split} and saved at {parquet_path}')
 	
@@ -63,7 +72,7 @@ def clean_cache(root: str):
 		if fname.endswith('.lock'): os.remove(os.path.join(root, fname))
 	
 
-def _reformat_dataframe(data: pandas.DataFrame, split):
+def _reformat_dataframe(data: pandas.DataFrame, split, cache):
 	
 	# Correct 1 example in train set
 	if split == 'train':
@@ -72,44 +81,64 @@ def _reformat_dataframe(data: pandas.DataFrame, split):
 		rationales = [r[:L] for r in rationales]
 		data.loc[1997, 'rationales'] = rationales
 	
+	data = data.apply(lambda column: [c.tolist() for c in column] if isinstance(column[0], np.ndarray) else column,axis=1)
+	#data = map_np2list(data)
+	
 	# gold label = most voted label
-	data['label'] = data.annotators.apply(lambda x: np.bincount(x['label']).argmax())
-	# rationale = average rationaled then binarize by 0.5 threshold
-	data['rationale'] = data.rationales.apply(lambda x: (np.mean([r.astype(float) for r in x], axis=0) >= 0.5).astype(int) if len(x) > 0 else x)
+	data['label'] = data['annotators.label'].apply(lambda x: np.bincount(x).argmax())
 	
 	# put back label into text
-	int2str = ['hatespeech', 'normal', 'offensive']  # huggingface's label
-	data['label'] = data.label.apply(lambda x: int2str[x]).astype('category')
+	data['label'] = data['label'].apply(lambda x: _HF_LABEL_ITOS[x]).astype('category') # decode from huggingface labels
+	
+	# rationale = average rationaled then binarize by 0.5 threshold
+	data['rationale'] = data['rationales'].apply(lambda x: (np.mean([r.astype(float) for r in x], axis=0) >= 0.5).astype(int) if len(x) > 0 else x)
+	
+	# Case there exists empty rationale in positive label
+	data['empty_rationale'] = data['rationale'].apply(lambda x: x.sum() == 0) & (data['label'] != 'normal')
+	
+	# else, pick the first one not empty
+	def handle_empty_rationale(x):
+		if x['label'] != 'normal' and x['rationale'].sum() == 0:
+			for r in x['rationales']:
+				if r.sum() > 0:
+					x['rationale'] = r
+					return x
+		return x
+	
+	data = data.apply(handle_empty_rationale, axis=1)
+	
+	# if all rationales are zeros, change label into normal
+	data['empty_rationale'] = data['rationale'].apply(lambda x: x.sum() == 0) & (data['label'] != 'normal')
+	data.loc[data['empty_rationale'], 'label'] = 'normal'
 	
 	# make rationale for negative example, for padding coherent
 	data['len_tokens'] = data.post_tokens.str.len()
 	data['rationale'] = data.apply(lambda row: np.zeros(row['len_tokens'], dtype=np.int32) if len(row['rationale']) == 0 else row['rationale'], axis=1)
-	data = data.drop(columns='len_tokens')
 	
 	# heuristic
 	heuristic_transform = HeuristicTransform(
 		batch_tokens=data['post_tokens'],
 		batch_rationale=data['rationale'],
-		pos_filter=['NOUN', 'VERB', 'ADJ'])
-	
+		cache=cache,
+		mask_value=0.,
+		pos_filter=['ADJ']
+	)
 	heuristics = heuristic_transform(data['post_tokens'].tolist())
-		
+	
 	data['heuristic'] = pd.Series(heuristics)
 	
-	data = data.drop(columns=['annotators', 'rationales', 'id'])
+	data = data.drop(columns=['len_tokens', 'empty_rationale', 'rationales', 'annotators.label', 'annotators.target'])
 	
 	# put back into list
-	list_attribute = ['rationale', 'post_tokens']
-	for attribute in list_attribute:
-		data[attribute] = data[attribute].apply(lambda x: x.tolist())
+	data = map_np2list(data)
 	
 	return data
 
 
 class HateXPlain(MapDataPipe):
 	
-	NUM_CLASS = NUM_CLASS
 	INPUT = INPUT
+	LABEL_ITOS = _LABEL_ITOS
 	
 	def __init__(self, split: str = 'train', root: str = path.join(os.getcwd(), '.cache'), n_data: int = -1):
 		
@@ -126,9 +155,7 @@ class HateXPlain(MapDataPipe):
 		# load the parquet file to data
 		self.data = pd.read_parquet(self.parquet_path)
 		
-		list_attribute = ['rationale', 'post_tokens', 'heuristic']
-		for attribute in list_attribute:
-			self.data[attribute] = self.data[attribute].apply(lambda x: x.tolist())
+		self.data = map_np2list(self.data)
 		
 		# if n_data activated, reduce the dataset equally for each class
 		if n_data > 0:
@@ -142,14 +169,6 @@ class HateXPlain(MapDataPipe):
 			self.data = pd.concat(subsets).reset_index(drop=True)
 	
 	def __getitem__(self, index: int):
-		"""
-
-		Args:
-			index ():
-
-		Returns:
-
-		"""
 		
 		# Load data and get label
 		if index >= len(self): raise IndexError  # meet the end of dataset
@@ -179,9 +198,9 @@ class HateXPlain(MapDataPipe):
 if __name__ == '__main__':
 	# Unit test
 	
-	from torch.utils.data import DataLoader, Dataset
+	from torch.utils.data import DataLoader
 	
-	cache_path = path.join('/Users', 'dunguyen', 'Projects', 'nlp', 'src', '_out', 'dataset')
+	cache_path = path.join(os.getcwd(), '.cache', 'dataset')
 	
 	# To load the 3 at same time:
 	# trainset, valset, testset = ESNLIDataPipe(root=cache_path)

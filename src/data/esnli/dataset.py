@@ -33,6 +33,9 @@ _MAP_FILE= {
 
 ZIP_FILEPATH='_esnli.zip'
 
+_LABEL_ITOS = ['neutral', 'entailment', 'contradiction']
+_LABEL_STOI = {label: idx for idx, label in enumerate(_LABEL_ITOS)}
+
 def download_format_dataset(root:str, split:str):
 	"""
 	Download and reformat dataset of eSNLI
@@ -151,6 +154,7 @@ class ESNLI(MapDataPipe):
 	
 	NUM_CLASS = NUM_CLASS
 	INPUT = INPUT
+	LABEL_ITOS = _LABEL_ITOS
 	
 	def __init__(self, split: str = 'train', root: str = path.join(os.getcwd(), '.cache'), n_data: int = -1):
 		"""

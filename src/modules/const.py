@@ -1,5 +1,9 @@
 from enum import Enum
 
+# numerical constants
+INF = 1e30 # Infinity
+EPS = 1e-30 # Epsilon
+
 # abstract enum
 class ExtendedEnum(Enum):
 	@classmethod

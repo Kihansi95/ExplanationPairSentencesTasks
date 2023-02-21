@@ -1,6 +1,8 @@
 import pickle
 import sys
 
+import numpy as np
+import pandas as pd
 import pytorch_lightning as pl
 import spacy
 import torch
@@ -14,7 +16,7 @@ from os import path
 from data.transforms import EntropyTransform
 from data.yelp_hat.spacy_pretok_dataset import SpacyPretokenizeYelpHat
 from modules import env
-from modules.const import Normalization, SpecToken
+from modules.const import Normalization, SpecToken, INF
 from modules.logger import log
 
 class YelpHatDM(pl.LightningDataModule):
@@ -25,13 +27,20 @@ class YelpHatDM(pl.LightningDataModule):
 		super().__init__()
 		self.cache_path = cache_path
 		self.batch_size = batch_size
+		
 		# Dataset already tokenized
 		self.n_data = n_data
 		self.num_workers = num_workers
 		self.spacy_model = spacy.load('en_core_web_sm')
 		self.shuffle = shuffle
-		self.num_class = SpacyPretokenizeYelpHat.NUM_CLASS
 		self.input_type = SpacyPretokenizeYelpHat.INPUT
+		self.LABEL_ITOS = SpacyPretokenizeYelpHat.LABEL_ITOS
+		
+		# configuration for predict writer
+		self.predict_config = {
+			'label_name' : 'y_hat',
+			'html.token' : ['a_true', 'a_hat', 'heuristic']
+		}
 	
 	def prepare_data(self):
 		# called only on 1 GPU
@@ -74,7 +83,7 @@ class YelpHatDM(pl.LightningDataModule):
 			self.vocab = vocab
 			
 		else:
-			self.vocab = torch.load(self.vocab_path, pickle_module=pickle5)
+			self.vocab = torch.load(self.vocab_path)
 			log.info(f'Loaded vocab at {self.vocab_path}')
 		
 		log.info(f'Vocab size: {len(self.vocab)}')
@@ -100,8 +109,9 @@ class YelpHatDM(pl.LightningDataModule):
 		self.entropy_transform = EntropyTransform()
 		
 		self.heuristic_transform = T.Sequential(
-			t.ToTensor(padding_value=0., dtype=torch.float),
-			t.NormalizationTransform(normalize=Normalization.LOG_STANDARD)
+			t.ToTensor(padding_value=0, dtype=torch.float),
+			t.ReplaceTransform(value=0, replace_by=-INF),
+			t.NormalizationTransform(normalize=Normalization.LOG_SOFTMAX)
 		)
 		
 	def setup(self, stage: str = None):
@@ -109,7 +119,6 @@ class YelpHatDM(pl.LightningDataModule):
 		
 		# called on every GPU
 		if stage == 'fit' or stage is None:
-			
 			if not hasattr(self, 'train_set'):
 				self.train_set = SpacyPretokenizeYelpHat(split='train', **dataset_kwargs)
 			if not hasattr(self, 'val_set'):
@@ -134,6 +143,25 @@ class YelpHatDM(pl.LightningDataModule):
 	def predict_dataloader(self):
 		return self.test_dataloader()
 	
+	def format_predict(self, prediction: pd.DataFrame):
+		
+		# replace label
+		label_columns = ['y_hat', 'y_true']
+		label_itos = {idx: val for idx, val in enumerate(self.LABEL_ITOS)}
+		prediction.replace({c: label_itos for c in label_columns}, inplace=True)
+		
+		# normalize heuristic into distribution
+		sum_heuris = prediction['heuristic'].apply(lambda x: sum(x))
+		if (sum_heuris != 1).any():
+			prediction['heuristic'] =  prediction['heuristic'].apply(lambda x: np.exp(x).tolist())
+		
+		if 'text_tokens' not in prediction.columns:
+			itos = self.vocab.get_itos()
+			text_tokens = [[itos[ids] for ids in token_ids ] for token_ids in prediction['token_ids'].tolist()]
+			prediction['text_tokens'] = pd.Series(text_tokens)
+		
+		return prediction
+	
 	## ======= PRIVATE SECTIONS ======= ##
 	def collate(self, batch):
 		# prepare batch of data for dataloader
@@ -154,7 +182,43 @@ class YelpHatDM(pl.LightningDataModule):
 		# convert list of dict to dict of list
 		if isinstance(batch, dict): return {k: list(v) for k, v in batch.items()}  # handle case where no batch
 		return {k: [row[k] for row in batch] for k in batch[0]}
+
+
+class TransformedYelpHat50DM(YelpHatDM):
+	#TODO working on this. If this work : replace YelpHat by new class
 	
+	name = 'YelpHat-50'
+	
+	def __init__(self, **kwargs):
+		super(TransformedYelpHat50DM, self).__init__(**kwargs)
+		
+		for idx in range(3):
+			data[f'ham_{idx}'] = data[f'ham_html_{idx}'].apply(lambda x: yelp_hat_ham(x, spacy_model)).apply(
+				lambda x: np.array(x))
+			
+		binarize_ham_transform = BinarizingAnnotationTransform()
+		
+		self.transforms = [ {'src': f'ham_{idx}', 'dst': f'ham_html_{idx}', 'fn': BinarizingAnnotationTransform()} for idx in range(3)] + [
+			{'src': 'ham_html_0', 'dst': 'text_tokens', 'fn': None},
+			{'src': 'ham_html_0', 'dst': 'text_tokens', 'fn': None},
+		]
+	
+	def setup(self, stage: str = None):
+		dataset_kwargs = dict(root=self.cache_path, n_data=self.n_data)
+		
+		# called on every GPU
+		if stage == 'fit' or stage is None:
+			self.train_set = SpacyPretokenizeYelpHat(split='train', **dataset_kwargs)
+			self.val_set = SpacyPretokenizeYelpHat(split='val', **dataset_kwargs)
+		
+		if (stage == 'test' or stage is None) and not hasattr(self, 'test_set'):
+			self.test_set = SpacyPretokenizeYelpHat(split='yelp50', **dataset_kwargs)
+	
+	def test_dataloader(self):
+		return DataLoader(self.test_set, batch_size=self.batch_size, shuffle=False, collate_fn=self.collate,
+		                  num_workers=self.num_workers)
+
+
 class YelpHat50DM(YelpHatDM):
 	name = 'YelpHat-50'
 	
@@ -169,11 +233,12 @@ class YelpHat50DM(YelpHatDM):
 			self.train_set = SpacyPretokenizeYelpHat(split='train', **dataset_kwargs)
 			self.val_set = SpacyPretokenizeYelpHat(split='val', **dataset_kwargs)
 		
-		if (stage == 'test' or stage is None) and not hasattr(self, 'test_set'):
+		if stage == 'test' or stage == 'predict' or stage is None:
 			self.test_set = SpacyPretokenizeYelpHat(split='yelp50', **dataset_kwargs)
 	
 	def test_dataloader(self):
 		return DataLoader(self.test_set, batch_size=self.batch_size, shuffle=False, collate_fn=self.collate, num_workers=self.num_workers)
+		
 		
 class YelpHat100DM(YelpHat50DM):
 
@@ -229,7 +294,7 @@ class CLSTokenYelpHatDM(YelpHatDM):
 			if env.disable_tqdm: log.info(f'Vocab CLS is saved at {self.vocab_path}')
 		
 		else:
-			self.vocab = torch.load(self.vocab_path, pickle_module=pickle5)
+			self.vocab = torch.load(self.vocab_path)
 			log.info(f'Loaded vocab CLS at {self.vocab_path}')
 		
 		log.info(f'Vocab size: {len(self.vocab)}')

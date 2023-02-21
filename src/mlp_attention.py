@@ -16,13 +16,12 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning import callbacks as cb
 
 def get_num_workers() -> int:
-	"""
-	Get maximum logical workers that a machine has
-	Args:
-		default (int): default value
-
-	Returns:
-		maximum workers number
+	"""Get maximum logical workers that a machine has
+	
+	Returns
+	-------
+	num_workers : int
+		maximum workers number possible
 	"""
 	if hasattr(os, 'sched_getaffinity'):
 		try:
@@ -55,15 +54,19 @@ def get_carbon_tracker(args) -> EmissionsTracker:
 	tracker.start()
 	return tracker
 
-def parse_argument(prog: str = __name__, description: str = 'Train LSTM-based attention') -> dict:
+def parse_argument(prog: str = __name__, description: str = 'Train MLP-based attention') -> dict:
+	"""Get carbon tracker based on argument
+	
+	Parameters
+	----------
+	args : Any
+
+	Returns
+	-------
+	tracker : EmissionsTracker
+		Eeither online, offline tracker if we precise --carbon_tracker. None if this argument is absent.
 	"""
-	Parse arguments passed to the script.
-	Args:
-		prog (str): name of the programme (experimentation)
-		description (str): What do we do to this script
-	Returns:
-		dictionary
-	"""
+	
 	parser = ArgumentParser(prog=prog, description=description)
 	
 	# Optional stuff
@@ -163,22 +166,22 @@ if __name__ == '__main__':
 	                 shuffle=args.shuffle)
 	
 	if args.data == 'hatexplain':
-		from data_module.hatexplain import HateXPlainDM
+		from data_module.hatexplain_module import HateXPlainDM
 		dm = HateXPlainDM(**dm_kwargs)
 	elif args.data == 'yelphat':
-		from data_module.yelp_hat import *
+		from data_module.yelp_hat_module import *
 		dm = YelpHatDM(**dm_kwargs)
 	elif args.data == 'yelphat50':
-		from data_module.yelp_hat import *
+		from data_module.yelp_hat_module import *
 		dm = YelpHat50DM(**dm_kwargs)
 	elif args.data == 'yelphat100':
-		from data_module.yelp_hat import *
+		from data_module.yelp_hat_module import *
 		dm = YelpHat100DM(**dm_kwargs)
 	elif args.data == 'yelphat200':
-		from data_module.yelp_hat import *
+		from data_module.yelp_hat_module import *
 		dm = YelpHat200DM(**dm_kwargs)
 	elif args.data == 'esnli':
-		from data_module.esnli import ESNLIDM
+		from data_module.esnli_module import ESNLIDM
 		dm = ESNLIDM(**dm_kwargs)
 	else:
 		log.error(f'Unrecognized dataset: {args.data}')
