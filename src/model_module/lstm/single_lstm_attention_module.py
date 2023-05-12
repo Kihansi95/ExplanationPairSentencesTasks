@@ -113,10 +113,10 @@ class SingleLSTMAttentionModule(pl.LightningModule):
 		y_true = batch['y_true']
 		padding_mask = batch['padding_mask']
 		a_true = batch['a_true']
-		a_true_entropy = batch['a_true_entropy']
+		# a_true_entropy = batch['a_true_entropy']
 		heuristic = batch['heuristic']
 		y_hat, a_hat = self(
-			ids=batch['token_ids'],
+			ids=batch['tokens'],
 			mask=padding_mask
 		)
 		
@@ -127,23 +127,47 @@ class SingleLSTMAttentionModule(pl.LightningModule):
 		# Sigmoid for IoU loss
 		flat_a_hat = self.flatten_attention(attention=a_hat, condition=y_true > 0, pad_mask=padding_mask, normalize='sigmoid')
 		flat_a_true = self.flatten_attention(attention=a_true, condition=y_true > 0, pad_mask=padding_mask)
-		
+
 		if flat_a_true is None:
 			loss_supervise = torch.tensor(0.).type_as(loss_classif)
 		else:
 			loss_supervise = self.supervise_loss_fn(flat_a_hat, flat_a_true)
-			
-		loss_lagrange = self.lagrange_loss_fn(a_hat_entropy, a_true_entropy)
+
 		loss_heuristic = self.heuristic_loss_fn(a_hat.log_softmax(dim=1), heuristic)
+		
+		if loss_heuristic > 10:
+			log.debug(f'loss_heuristic={loss_heuristic}')
+
+		#
+		
+		# flat_a_hat_sig = self.flatten_attention(attention=a_hat, condition=y_true > 0, pad_mask=padding_mask, normalize='sigmoid')
+		# flat_a_true = self.flatten_attention(attention=a_true, condition=y_true > 0, pad_mask=padding_mask)
+		#
+		# flat_a_hat_soft = self.flatten_attention(attention=a_hat, condition=y_true > 0, pad_mask=padding_mask, normalize='softmax')
+		# flat_a_heuristic = self.flatten_attention(attention=heuristic, condition=y_true > 0, pad_mask=padding_mask)
+		#
+		# if flat_a_true is None:
+		# 	loss_supervise = torch.tensor(0.).type_as(loss_classif)
+		# 	loss_heuristic = torch.tensor(0.).type_as(loss_classif)
+		# else:
+		# 	loss_supervise = self.supervise_loss_fn(flat_a_hat_sig, flat_a_true)
+		# 	loss_heuristic = self.heuristic_loss_fn(flat_a_hat_soft, flat_a_heuristic)
+		
+		# loss_lagrange = self.lagrange_loss_fn(a_hat_entropy, a_true_entropy)
+		
+		# loss = loss_classif + self.lambda_entropy * loss_entropy \
+		#        + self.lambda_supervise * loss_supervise \
+		#        + self.lambda_lagrange * loss_lagrange \
+		#        + self.lambda_heuristic * loss_heuristic
+		
 		loss = loss_classif + self.lambda_entropy * loss_entropy \
 		       + self.lambda_supervise * loss_supervise \
-		       + self.lambda_lagrange * loss_lagrange \
 		       + self.lambda_heuristic * loss_heuristic
 		
 		return {'loss': loss,
 		        'loss_entropy': loss_entropy,
 		        'loss_supervise': loss_supervise,
-		        'loss_lagrange': loss_lagrange,
+		        # 'loss_lagrange': loss_lagrange,
 		        'loss_heuristic': loss_heuristic,
 		        'y_hat': y_hat, 'y_true': y_true, 'a_hat': a_hat, 'a_true': a_true, 'padding_mask': padding_mask}
 	
@@ -153,7 +177,7 @@ class SingleLSTMAttentionModule(pl.LightningModule):
 	def test_step(self, batch, batch_idx, dataloader_idx=None):
 
 		y_hat, a_hat = self(
-			ids=batch['token_ids'],
+			ids=batch['tokens'],
 			mask=batch['padding_mask']
 		)
 		
@@ -169,7 +193,7 @@ class SingleLSTMAttentionModule(pl.LightningModule):
 		
 		padding_mask = batch['padding_mask']
 		y_hat, a_hat = self(
-			ids=batch['token_ids'],
+			ids=batch['tokens'],
 			mask=batch['padding_mask']
 		)
 		a_hat = a_hat.detach()

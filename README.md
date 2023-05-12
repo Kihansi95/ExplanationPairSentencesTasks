@@ -82,6 +82,12 @@ python src/summarize_result.py \
           --experiment hatexplain_supervise
 ```
 
+### Pip installations
+
+```bash
+pip install tables
+```
+
 ## Citations
 
 Anonymous

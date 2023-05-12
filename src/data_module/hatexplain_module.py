@@ -63,7 +63,7 @@ class HateXPlainDM(pl.LightningDataModule):
 
             # Announce where we save the vocabulary
             torch.save(vocab, self.vocab_path, pickle_protocol=pickle.HIGHEST_PROTOCOL)  # Use highest protocol to speed things up
-            iter_tokens.set_postfix({'path': self.vocab_path})
+            iter_tokens.set_postfix({'fpath': self.vocab_path})
             if env.disable_tqdm: log.info(f'Vocabulary is saved at {self.vocab_path}')
             iter_tokens.close()
             self.vocab = vocab
@@ -138,7 +138,7 @@ class HateXPlainDM(pl.LightningDataModule):
     
         if 'text_tokens' not in prediction.columns:
             itos = self.vocab.get_itos()
-            text_tokens = [[itos[ids] for ids in token_ids] for token_ids in prediction['token_ids'].tolist()]
+            text_tokens = [[itos[ids] for ids in token_ids] for token_ids in prediction['tokens'].tolist()]
             prediction['text_tokens'] = pd.Series(text_tokens)
     
     
@@ -152,13 +152,13 @@ class HateXPlainDM(pl.LightningDataModule):
         b = {
             'post_tokens': batch['post_tokens'],
             'rationale': batch['rationale'],
-            'token_ids': self.text_transform(batch['post_tokens']),
+            'tokens': self.text_transform(batch['post_tokens']),
             'a_true': self.rationale_transform(batch['rationale']),
             'heuristic': self.heuristic_transform(batch['heuristic']),
             'y_true': self.label_transform(batch['label'])
         }
 
-        b['padding_mask'] = b['token_ids'] == self.vocab[SpecToken.PAD]
+        b['padding_mask'] = b['tokens'] == self.vocab[SpecToken.PAD]
         b['a_true_entropy'] = self.entropy_transform(b['a_true'], b['padding_mask'])
         return b
 
@@ -205,14 +205,14 @@ class CLSTokenHateXPlainDM(HateXPlainDM):
         b = super(CLSTokenHateXPlainDM, self).collate(batch)
 
         # adding CLS token at the beginning
-        bsz = b['token_ids'].size(0)  # == batch_size or len(data) if len(data) < batch_size
+        bsz = b['tokens'].size(0)  # == batch_size or len(data) if len(data) < batch_size
         cls_ids = torch.tensor([self.vocab[SpecToken.CLS]]).repeat(bsz, 1)
         cls_pad = torch.tensor([0.]).repeat(bsz, 1)  # we contextualise the CLS token
         att_pad = torch.tensor([0.]).repeat(bsz, 1)
 
         # udpate classic batch with adding
         b.update({
-            'token_ids': torch.cat((cls_ids, b['token_ids']), 1),
+            'tokens': torch.cat((cls_ids, b['tokens']), 1),
             'padding_mask': torch.cat((cls_pad, b['padding_mask']), 1),
             'a_true': torch.cat((att_pad, b['a_true']), 1),
         })

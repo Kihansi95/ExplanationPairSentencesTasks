@@ -42,7 +42,7 @@ def download_format_dataset(root: str, split: str):
 	Returns
 	-------
 	str
-		path to cache file
+		fpath to cache file
 	"""
 	
 	if path.basename(root) != DATASET_NAME:

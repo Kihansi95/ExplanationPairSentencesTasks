@@ -1,16 +1,16 @@
 import os
 import warnings
+from functools import partial
 
 from typing import Union
 
 from os import path
 
-import pandas as pd
 import pytorch_lightning as pl
 import torch
 
 from torch import optim, nn
-from torchtext.vocab.vectors import pretrained_aliases as pretrained
+from torchtext.vocab.vectors import pretrained_aliases as pretrained, FastText
 
 import torchmetrics as m
 
@@ -20,6 +20,10 @@ from modules.logger import log
 from modules import metrics, rescale, INF
 from modules.loss import IoU, KLDivLoss
 from modules.maths import mean
+
+pretrained.update({
+	"fasttext.fr.300d": partial(FastText, language="fr"),
+})
 
 
 class DualLSTMAttentionModule(pl.LightningModule):
@@ -44,7 +48,13 @@ class DualLSTMAttentionModule(pl.LightningModule):
 		if pretrained_vectors is not None and isinstance(pretrained_vectors, str):
 			vector_path = path.join(cache_path, '..', '.vector_cache')
 			os.makedirs(vector_path, exist_ok=True)
-			vectors = pretrained[pretrained_vectors](cache=vector_path)
+			
+			log.warning('Check if everything is ok here for archival !')
+			def init_unknown_token(token):
+				init_vector = torch.FloatTensor(token.shape[0]).uniform_(-1, 1)
+				return init_vector / init_vector.norm()
+			
+			vectors = pretrained[pretrained_vectors](cache=vector_path, unk_init=init_unknown_token)
 			pretrained_vectors = [vectors[token] for token in vocab.get_itos()]
 			pretrained_vectors = torch.stack(pretrained_vectors)
 
@@ -71,7 +81,7 @@ class DualLSTMAttentionModule(pl.LightningModule):
 		self.lambda_heuristic = lambda_heuristic
 		
 		template_y_metrics = m.MetricCollection({
-			'y:accuracy': m.Accuracy(num_classes=num_class, multiclass=True),
+			#'y:accuracy': m.Accuracy(num_classes=num_class, multiclass=True),
 			'y:fscore': m.F1Score(num_classes=num_class, multiclass=True)
 		})
 		
@@ -81,10 +91,10 @@ class DualLSTMAttentionModule(pl.LightningModule):
 				'a:AUPRC': m.AveragePrecision(average='micro'),
 				'a:Recall': metrics.AURecall(),
 				'a:Precision': metrics.AUPrecision(),
-				'a:Jaccard': metrics.PowerJaccard(),
+				#'a:Jaccard': metrics.PowerJaccard(),
 				'a:Specificity': m.Specificity(),
-				'a:Dice': m.Dice(),
-				'a:IoU': m.JaccardIndex(num_classes=2),
+				#'a:Dice': m.Dice(),
+				#'a:IoU': m.JaccardIndex(num_classes=2),
 			})
 			warnings.simplefilter("ignore")
 		
@@ -98,9 +108,6 @@ class DualLSTMAttentionModule(pl.LightningModule):
 		self.entropy_metric = nn.ModuleDict({
 			phase: metrics.Entropy(normalize=True) for phase in PHASES
 		})
-		self.reg_term_metric = nn.ModuleDict({
-			phase: m.MeanMetric() for phase in PHASES
-		})
 		
 	def forward(self, premise_ids, hypothesis_ids, premise_padding, hypothesis_padding):
 		return self.model(
@@ -111,8 +118,7 @@ class DualLSTMAttentionModule(pl.LightningModule):
 		)
 
 	def configure_optimizers(self):
-		optimizer = optim.Adam(self.parameters())
-		return optimizer
+		return optim.Adam(self.parameters())
 	
 	def training_step(self, batch, batch_idx, val=False):
 		
@@ -134,10 +140,10 @@ class DualLSTMAttentionModule(pl.LightningModule):
 		loss_entropy = mean(loss_entropy_pair)
 		
 		# Sigmoid for IoU loss
-		flat_a_hat = [self.flatten_attention(attention=a_hat[s], condition=y_true > 0, pad_mask=padding_mask[s], normalize='sigmoid') for s in a_hat]
+		flat_a_hat_sig = [self.flatten_attention(attention=a_hat[s], condition=y_true > 0, pad_mask=padding_mask[s], normalize='sigmoid') for s in a_hat]
 		flat_a_true = [self.flatten_attention(attention=a_true[s], condition=y_true > 0, pad_mask=padding_mask[s]) for s in a_true]
 		
-		flat_a_hat = torch.cat(flat_a_hat)
+		flat_a_hat = torch.cat(flat_a_hat_sig)
 		flat_a_true = torch.cat(flat_a_true)
 		
 		if flat_a_true is None:
@@ -145,7 +151,7 @@ class DualLSTMAttentionModule(pl.LightningModule):
 		else:
 			loss_supervise = self.supervise_loss_fn(flat_a_hat, flat_a_true)
 		
-		loss_heuristic_pair = {s: self.heuristic_loss_fn(a_hat[s].log_softmax(dim=1), heuristic[s]) for s in a_hat}
+		loss_heuristic_pair = {s: self.heuristic_loss_fn(a_hat[s].masked_fill(padding_mask[s], -INF).log_softmax(dim=1), heuristic[s]) for s in a_hat}
 		loss_heuristic = mean(loss_heuristic_pair)
 		
 		loss = loss_classif + self.lambda_entropy * loss_entropy \
@@ -197,6 +203,8 @@ class DualLSTMAttentionModule(pl.LightningModule):
 	
 	def step_end(self, outputs, stage: str = 'TEST'):
 		
+		rank_zero_only = stage in ['TRAIN', 'VAL'] # allow when training not to reduce across devices
+		
 		a_hat, a_true = outputs['a_hat'], outputs['a_true']
 		y_hat, y_true = outputs['y_hat'], outputs['y_true']
 		padding_mask = outputs['padding_mask']
@@ -210,21 +218,20 @@ class DualLSTMAttentionModule(pl.LightningModule):
 		# log attentions metrics
 		if flat_a_hat.size(0) > 0:
 			metric_a = self.attention_metrics[stage](flat_a_hat, flat_a_true)
-			# metric_a['a:entropy'] = 0.5 * sum([metrics.entropy(a_hat[s], padding_mask[s], normalize=True, average='micro') for s in a_hat])
 			for s in a_hat:	metric_a['a:entropy'] = self.entropy_metric[stage](a_hat[s], padding_mask[s])
 			metric_a = {f'{stage}/{k}': v.item() for k, v in metric_a.items()}  # put metrics within same stage under the same folder
-			self.log_dict(metric_a, prog_bar=True)
+			self.log_dict(metric_a, prog_bar=True, rank_zero_only=rank_zero_only)
 		
 		# log for classification metrics
 		metric_y = self.y_metrics[stage](y_hat, y_true)
 		metric_y = {f'{stage}/{k}': v for k, v in metric_y.items()}  # put metrics within same stage under the same folder
-		self.log_dict(metric_y, prog_bar=True)
+		self.log_dict(metric_y, prog_bar=True, rank_zero_only=rank_zero_only)
 		
 		if stage != 'TEST':
 			# if not in test stage, log loss metrics
 			loss_names = [k for k in outputs.keys() if 'loss' in k]
 			for loss_metric in loss_names:
-				self.log(f'{stage}/{loss_metric}', outputs[loss_metric], prog_bar=True, sync_dist=True)
+				self.log(f'{stage}/{loss_metric}', outputs[loss_metric], prog_bar=True, rank_zero_only=rank_zero_only)
 	
 	def training_step_end(self, outputs):
 		return self.step_end(outputs, stage='TRAIN')
@@ -275,31 +282,36 @@ class DualLSTMAttentionModule(pl.LightningModule):
 		init_hp_metrics.update({f'TEST/{k}': 0 for k in self.attention_metrics['TEST']})
 		init_hp_metrics.update({f'TEST/a:entropy': 0})
 		self.logger.log_hyperparams(self.hparams, init_hp_metrics)
-	
-	def on_train_epoch_start(self):
-		# Make new line for progress bar.
-		# See: https://github.com/PyTorchLightning/pytorch-lightning/issues/2189
-		if self._mode == Mode.DEV:
-			print()
-	
+		
 	def epoch_end(self, stage):
-		if self._mode == Mode.EXP:
-			metric = self.y_metrics[stage].compute()
-			try:
-				metric.update(self.attention_metrics[stage].compute())
-			except RuntimeError as e:
-				log.error(e)
-				
-			metric.update({
-				'a:entropy': self.entropy_metric[stage].compute()
-			})
-			metric = {k: round(v.item(), 3) for k, v in metric.items()}
-			log.info(f'Epoch {self.current_epoch} {stage}:{metric}')
+
+		metric = self.y_metrics[stage].compute()
+		
+		# add one more case to avoid error
+		self.attention_metrics[stage].update(torch.tensor([0., 1.], device=self.device), torch.tensor([1, 0], device=self.device))
+		metric.update(self.attention_metrics[stage].compute())
 			
+		metric.update({
+			'a:entropy': self.entropy_metric[stage].compute()
+		})
+		
+		# rounding numbers
+		metric = {k: round(v.item(), 3) for k, v in metric.items()}
+		
+		if self._mode == Mode.EXP:
+			log.info(f'Epoch {self.current_epoch} {stage}:{metric}')
+		
+		# reset to 0 to avoid wrong calculation
+		self.y_metrics[stage].reset()
+		self.attention_metrics[stage].reset()
+		self.entropy_metric[stage].reset()
+		
 	def on_train_epoch_end(self):
 		return self.epoch_end('TRAIN')
 		
 	def on_validation_epoch_end(self):
+		if self._mode == Mode.DEV:
+			print()
 		return self.epoch_end('VAL')
 		
 	def __str__(self):

@@ -67,7 +67,7 @@ class HeuristicTransform(Module):
 			any pretrained vector to compute similarity
 		spacy_model : spacy.Language
 		cache : str
-			path to store caching files for this function
+			fpath to store caching files for this function
 		"""
 		super(HeuristicTransform, self).__init__()
 		self.sm = spacy_model
@@ -136,3 +136,29 @@ class HeuristicTransform(Module):
 			
 		return heuristic
 	
+	
+class MaskingTokenTransform(Module):
+	def __init__(self, mask_ratio: float, mask_token: str or int):
+		"""Masking token transform
+		
+		Parameters
+		----------
+		mask_ratio : float
+			The ratio of tokens to be masked.
+		mask_token : string or int
+			The special mask token used to replace the original token for masked LM.
+		"""
+		super(MaskingTokenTransform, self).__init__()
+		assert 0. <= mask_ratio <= 1., f'mask_ratio should be in [0, 1], got {mask_ratio}'
+		
+		self.mask_ratio = mask_ratio
+		self.mask_token = mask_token
+		
+	def forward(self, tokens: List[List[str]]):
+		
+		if self.mask_ratio > 0.:
+			mask_indices = torch.bernoulli(torch.full(tokens.shape, self.mask_ratio)).bool()
+			masked_tokens = torch.where(mask_indices, torch.full(tokens.shape, self.mask_token), tokens)
+			return masked_tokens
+		
+		return tokens

@@ -1,5 +1,8 @@
 from enum import Enum
 
+# for result reproduction
+SEED = 42
+
 # numerical constants
 INF = 1e30 # Infinity
 EPS = 1e-30 # Epsilon
@@ -29,6 +32,11 @@ class SpecToken(str, ExtendedEnum):
 	PAD = '<pad>'
 	UNK = '<unk>'
 	CLS = '<cls>'
+	MASK = '<mask>'
+	ENT_PER = '<PER>'
+	ENT_LOC = '<LOC>'
+	ENT_ORG = '<ORG>'
+	ENT_MISC = '<MISC>'
 
 class Normalization(str, ExtendedEnum):
 	NONE = None
@@ -48,6 +56,7 @@ class ContextType(str, ExtendedEnum):
 # Data choice
 class Data(str, ExtendedEnum):
 	ARCHIVAL_NLI='archival_nli'
+	XNLI='xnli'
 	ESNLI='esnli'
 	HATEXPLAIN='hatexplain'
 	YELPHAT='yelphat'

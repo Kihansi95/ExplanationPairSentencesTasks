@@ -245,7 +245,7 @@ if __name__ == '__main__':
 		num_nodes=args.num_nodes,
 	)
 	
-	# Set up output path
+	# Set up output fpath
 	ckpt_path = path.join(LOG_DIR, 'checkpoints', 'best.ckpt')
 	hparams_path = path.join(LOG_DIR, 'hparams.yaml')
 	# Carbon tracking
@@ -253,10 +253,18 @@ if __name__ == '__main__':
 	# Init model
 	if args.train:
 		model = ModelModule(**model_args)
-		trainer.fit(model, datamodule=dm, ckpt_path=ckpt_path if args.resume else None)
-	
+		if args.resume:
+			try:
+				trainer.fit(model, datamodule=dm, ckpt_path=ckpt_path)
+			except FileNotFoundError:
+				log.info(f'Checkpoint fpath ({ckpt_path}) not found. Train from scratch.')
+				trainer.fit(model, datamodule=dm)
 	else:
-		model = ModelModule.load_from_checkpoint(checkpoint_path=ckpt_path, hparams_file=hparams_path, **model_args)
+		model = ModelModule.load_from_checkpoint(
+			checkpoint_path=ckpt_path,
+			hparams_file=hparams_path,
+			**model_args
+		)
 		
 	# Carbon tracking
 	tracker = get_carbon_tracker(args)

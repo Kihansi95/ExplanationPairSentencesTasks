@@ -152,8 +152,8 @@ if __name__ == '__main__':
 						plt.close(fig)
 			
 					if print_table:
-						mean = df.groupby([g, lambda_value]).mean()
-						std = df.groupby([g, lambda_value]).std()
+						mean = df.groupby([g, lambda_value]).mean(numeric_only=False)
+						std = df.groupby([g, lambda_value]).std(numeric_only=False)
 						
 						if args.round:
 							mean = mean.round(args.round)

@@ -53,7 +53,7 @@ def search_rep(model, dm, mean_calc: bool = False):
             y_true = batch["y_true"].to(DEVICE)
             bs = y_true.shape[0]  # the batch size
 
-            ids = batch["token_ids"].to(DEVICE)
+            ids = batch["tokens"].to(DEVICE)
             padding_mask = batch["padding_mask"].bool().to(DEVICE)
 
             # output of the model

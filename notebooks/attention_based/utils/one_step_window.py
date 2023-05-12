@@ -108,7 +108,7 @@ def attention_metrics_res(model, dm, nb_data: int, verbose: bool = True):
             pbar.set_description("proceed the cosine map")
 
             y_true = batch["y_true"].to(model.device)
-            ids = batch["token_ids"].to(model.device)[y_true != cond, :]
+            ids = batch["tokens"].to(model.device)[y_true != cond, :]
             padding_mask = batch["padding_mask"].bool().to(model.device)[y_true != cond, :]
 
             temp = (~padding_mask)

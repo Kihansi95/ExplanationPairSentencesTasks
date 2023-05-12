@@ -1,4 +1,5 @@
 import os
+from os import path
 import warnings
 
 from argparse import ArgumentParser
@@ -14,9 +15,9 @@ from torchtext.vocab.vectors import pretrained_aliases as pretrained
 
 import torchmetrics as m
 
-from data_module.hatexplain import CLSTokenHateXPlainDM
-from data_module.yelp_hat import *
-from data_module.esnli import CLSTokenESNLIDM
+from data_module.hatexplain_module import CLSTokenHateXPlainDM
+from data_module.yelp_hat_module import *
+from data_module.esnli_module import CLSTokenESNLIDM
 from modules.const import SpecToken, Mode, TrackCarbon
 
 from modules.logger import log, init_logging
@@ -127,7 +128,7 @@ class AttitModel(pl.LightningModule):
         padding_mask = batch['padding_mask'].bool()  # (N, L)
         a_true = batch['a_true']
         a_true_entropy = batch['a_true_entropy']
-        output_model = self(ids=batch['token_ids'], mask=padding_mask)
+        output_model = self(ids=batch['tokens'], mask=padding_mask)
 
         # training part
         y_hat = output_model["logits"]
@@ -183,11 +184,11 @@ class AttitModel(pl.LightningModule):
     def test_step(self, batch, batch_idx, dataloader_idx=None):
         # this function only calculate the vectors we need.
         padding_mask = batch['padding_mask'].bool()  # [N, L]
-        output_model = self(ids=batch['token_ids'], mask=padding_mask)
+        output_model = self(ids=batch['tokens'], mask=padding_mask)
 
         # training part
         y_hat = output_model["logits"]
-        output_model = self(ids=batch['token_ids'], mask=padding_mask)
+        output_model = self(ids=batch['tokens'], mask=padding_mask)
 
         attention_tensor = torch.stack(output_model['attn_weights'], dim=1)  # [N, num_layers=1, L, L]
         a_hat = attention_tensor[:, 0, 0, :]
@@ -533,15 +534,25 @@ if __name__ == '__main__':
         num_nodes=args.num_nodes,
     )
 
-    # Set up output path
+    # Set up output fpath
     ckpt_path = path.join(logger.log_dir, 'checkpoints', 'best.ckpt')
     hparams_path = path.join(logger.log_dir, 'hparams.yaml')
 
     if args.train:
         model = AttitModel(**model_args)
-        trainer.fit(model, datamodule=dm, ckpt_path=ckpt_path if args.resume else None)
+        if args.resume:
+            try:
+                trainer.fit(model, datamodule=dm, ckpt_path=ckpt_path)
+            except FileNotFoundError:
+                log.info(f'Checkpoint fpath ({ckpt_path}) not found. Train from scratch.')
+                trainer.fit(model, datamodule=dm)
+
     else:
-        model = AttitModel.load_from_checkpoint(checkpoint_path=ckpt_path, hparams_file=hparams_path, **model_args)
+        model = AttitModel.load_from_checkpoint(
+            checkpoint_path=ckpt_path,
+            hparams_file=hparams_path,
+            **model_args
+        )
 
     # Carbon tracking
     tracker = get_carbon_tracker(args)

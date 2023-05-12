@@ -18,7 +18,6 @@ class AURecall(AUC):
 		super(AURecall, self).__init__(reorder, **kwargs)
 	
 	def update(self, preds: Tensor, target: Tensor):
-
 		thresholds = preds.unique()
 		precisions = torch.tensor([F.recall(preds, target, threshold=eps) for eps in thresholds], device=self.device)
 		super(AURecall, self).update(thresholds, precisions)

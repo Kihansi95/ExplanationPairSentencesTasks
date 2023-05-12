@@ -30,7 +30,7 @@ class HeuristicTransform(Module):
 		batch_rationale : list
 			binary map. have to match with batch tokens
 		cache : str, optional, default None
-			path to store caching files for this function
+			fpath to store caching files for this function
 		spacy_model : spacy.Tokenizer, optional
 			spacy tokenizer
 		pos_filter : list, optional

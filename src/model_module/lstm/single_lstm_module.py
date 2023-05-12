@@ -77,7 +77,7 @@ class SingleLSTMModule(pl.LightningModule):
 		
 		y_true = batch['y_true']
 		y_hat = self(
-			ids=batch['token_ids']
+			ids=batch['tokens']
 		)
 		loss = self.loss_fn(y_hat, y_true)
 		
@@ -89,7 +89,7 @@ class SingleLSTMModule(pl.LightningModule):
 	def test_step(self, batch, batch_idx, dataloader_idx=None):
 
 		y_hat = self(
-			ids=batch['token_ids']
+			ids=batch['tokens']
 		)
 		
 		return {'y_hat': y_hat,

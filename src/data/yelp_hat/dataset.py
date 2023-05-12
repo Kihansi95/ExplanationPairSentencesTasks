@@ -57,7 +57,7 @@ def download_format_dataset(root: str, split: str='yelp'):
 	files = extract_archive(from_path=zip_path, to_path=extracted_path)
 	files = [f for f in files if f.endswith('.csv')]
 	
-	# If path exists already, ignore doing things
+	# If fpath exists already, ignore doing things
 	parquet_path = path.join(root, _EXTRACTED_FILES[split])
 	if path.exists(parquet_path): return parquet_path
 	

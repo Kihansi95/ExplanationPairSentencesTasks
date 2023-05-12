@@ -30,7 +30,7 @@ def create_embeddings(model, cache: str) -> Tensor:
         cache : where to load the embedding matrix
 
     Returns:
-        return a tensor of the shape (len(vocab), 300) and save it at the path : cache.
+        return a tensor of the shape (len(vocab), 300) and save it at the fpath : cache.
     """
     if os.path.exists(cache):
         print(f"load the matrix at the location {cache} ...", end=" ")
@@ -156,7 +156,7 @@ def attention_metrics_res(model, dm, cache: str, nb_data: int, verbose: bool = T
             pbar.set_description("proceed the cosine map")
 
             y_true = batch["y_true"].to(model.device)
-            ids = batch["token_ids"].to(model.device)[y_true != cond, :]
+            ids = batch["tokens"].to(model.device)[y_true != cond, :]
             padding_mask = batch["padding_mask"].bool().to(model.device)[y_true != cond, :]
 
             temp = (~padding_mask)

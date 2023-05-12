@@ -34,7 +34,7 @@ def rollout(model, dm, verbose: bool = True):
             pbar.set_description("proceed the cosine map")
 
             y_true = batch["y_true"].to(model.device)
-            ids = batch["token_ids"].to(model.device)
+            ids = batch["tokens"].to(model.device)
             padding_mask = batch["padding_mask"].bool().to(model.device)
             T = (~padding_mask).float().sum(dim=-1).unsqueeze(dim=-1).repeat(1, padding_mask.shape[1])
 

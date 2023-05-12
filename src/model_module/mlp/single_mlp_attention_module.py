@@ -124,7 +124,7 @@ class SingleMlpAttentionModule(pl.LightningModule):
 		a_true = batch['a_true']
 		a_true_entropy = batch['a_true_entropy']
 		heuristic = batch['heuristic']
-		y_hat, a_hat = self(ids=batch['token_ids'], mask=padding_mask)
+		y_hat, a_hat = self(ids=batch['tokens'], mask=padding_mask)
 		loss_classif = self.loss_fn(y_hat, y_true)
 		a_hat_entropy = metrics.entropy(a_hat, padding_mask, normalize=True)
 		loss_entropy = a_hat_entropy.mean()
@@ -158,7 +158,7 @@ class SingleMlpAttentionModule(pl.LightningModule):
 	
 	def test_step(self, batch, batch_idx, dataloader_idx=None):
 
-		y_hat, a_hat = self(ids=batch['token_ids'], mask=batch['padding_mask'])
+		y_hat, a_hat = self(ids=batch['tokens'], mask=batch['padding_mask'])
 		
 		return {'y_hat': y_hat,
 		        'y_true': batch['y_true'],

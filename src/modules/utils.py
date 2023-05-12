@@ -11,20 +11,25 @@ import torch
 from modules.const import INF
 from modules.logger import log
 
-def rescale(attention: torch.Tensor, mask: torch.Tensor):
-	"""
-	Project min value to 0 and max value to 1.
+def rescale(attention: torch.Tensor or list, mask: torch.Tensor):
+	"""Project min value to 0 and max value to 1. Assign 0 to all position if uniform
 	
-	:param attention:
-	:type attention:
-	:param mask:
-	:type mask:
-	:return:
-	:rtype:
+	Parameters
+	----------
+	attention :
+	mask :
+
+	Returns
+	-------
+
 	"""
+	if isinstance(attention, list):
+		attention = torch.tensor(attention)
+
 	v_max = torch.max(attention + mask.float() * -INF, dim=1, keepdim=True).values
 	v_min = torch.min(attention + mask.float() * INF, dim=1, keepdim=True).values
-	v_min[v_min == v_max] = 0.
+	v_min[v_min == v_max] = 0. # if v_min ==
+	v_max[(v_max == 0) & (v_min == v_max)] = 1.
 	rescale_attention = (attention - v_min)/(v_max - v_min)
 	rescale_attention[mask] = 0.
 	return rescale_attention
@@ -35,7 +40,7 @@ def hex2rgb(hex):
 	return rgb
 
 
-def hightlight(words: List[str], weights: Union[np.ndarray, torch.tensor, list], color:Union[str, Tuple[int]]=None):
+def highlight(words: List[str], weights: Union[np.ndarray, torch.tensor, list], color:Union[str, Tuple[int]]=None):
 	"""Build HTML that highlights words based on its weights
 	
 	Parameters
@@ -65,7 +70,9 @@ def hightlight(words: List[str], weights: Union[np.ndarray, torch.tensor, list],
 		weights = torch.from_numpy(weights)
 	elif isinstance(weights, list):
 		weights = torch.tensor(weights)
-		
+	
+	weights = weights.float()
+	
 	w_min, w_max = torch.min(weights), torch.max(weights)
 	
 	w_norm = (weights - w_min)/((w_max - w_min) + (w_max == w_min)*w_max)
@@ -221,3 +228,66 @@ def map_np2list(df: pd.DataFrame):
     """
 	
 	return df.apply(lambda column: [c.tolist() for c in column] if isinstance(column[0], np.ndarray) else column)
+
+def binarize_attention(attention: Union[np.ndarray, torch.tensor, list], mass=0.8):
+	"""Get a binary vector where sum of attention value of marked tokens are more than the attention mass.
+	
+	Parameters
+	----------
+	attention : array or list or torch.tensor
+		attention map (sum into 1)
+	mass : float
+		minimum attention map to retain.
+
+	Returns
+	-------
+	torch.tensor or list or np.array
+	"""
+	if isinstance(attention, list):
+		attention = torch.tensor(attention)
+	
+	assert 0.9 < attention.sum() < 1.1, 'attention map isn\'t normalized'
+	
+	# Sort the distribution tensor in descending order
+	sorted_alpha, indices = torch.sort(attention, descending=True)
+	# Compute the cumulative sum of the sorted tensor
+	cumsum_alpha = torch.cumsum(sorted_alpha, dim=0)
+	# Find the index of the first element whose cumulative sum is >= 0.8
+	index = torch.argmax((cumsum_alpha >= mass).int(), dim=0)
+	# Create a binary mask with True for the elements with cumsum_alpha >= 0.8
+	b = torch.zeros_like(attention, dtype=torch.int)
+	b[indices[:index + 1]] = 1
+	return b
+
+def topk_2d(m, k, **kwargs):
+	"""Get topk values and indices from 2d matrix
+	
+	Parameters
+	----------
+	m : torch.tensor
+		2d matrix that has
+	k : int
+		k elements from top to get
+	largest : bool
+		see `torch.top.k`. Default : `True`
+	**kwargs :
+		arguments to be passed in `torch.topk`
+	Returns
+	-------
+
+	"""
+	k = int(k)
+	
+	# make sure k is smaller than number of elements in m
+	k = min(k, m.numel())
+	
+	# flatten into 1d array because torch can only work on 1d
+	values, top_indices = torch.topk(m.flatten(), k, **kwargs)
+	
+	# map back to 2d coordinate
+	top_x = top_indices.div(m.shape[1], rounding_mode='trunc')
+	top_y = top_indices.remainder(m.shape[1])
+	
+	return values, (top_x, top_y)
+
+
