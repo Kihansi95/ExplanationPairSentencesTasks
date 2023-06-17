@@ -417,44 +417,12 @@ class MaskedESNLIDM(ESNLIDM):
 		
 		log.info(f'Vocab size: {len(self.vocab)}')
 		
-		self.masking_token_transform = MaskingTokenTransform(mask_ratio = 0.1, mask_token=self.vocab[SpecToken.MASK])
-		
-	
-	def setup(self, stage: str = None):
-		dataset_kwargs = dict(root=self.cache_path, n_data=self.n_data, transformations=self.transformations,
-		                      column_name=self.rename_columns)
-		
-		# called on every GPU
-		if stage == 'fit' or stage is None:
-			self.train_set = PretransformedESNLI(split='train', **dataset_kwargs)
-			self.val_set = PretransformedESNLI(split='val', **dataset_kwargs)
-		
-		if stage == 'test' or stage == 'predict' or stage is None:
-			self.test_set = PretransformedESNLI(split='test', **dataset_kwargs)
-	
-	def train_dataloader(self):
-		return DataLoader(self.train_set,
-		                  batch_size=self.batch_size,
-		                  shuffle=self.shuffle,
-		                  collate_fn=self.collate,
-		                  num_workers=self.num_workers)
-	
-	def val_dataloader(self):
-		return DataLoader(self.val_set,
-		                  batch_size=self.batch_size,
-		                  shuffle=False,
-		                  collate_fn=self.collate,
-		                  num_workers=self.num_workers)
-	
-	def test_dataloader(self):
-		return DataLoader(self.test_set,
-		                  batch_size=self.batch_size,
-		                  shuffle=False,
-		                  collate_fn=self.collate,
-		                  num_workers=self.num_workers)
-	
-	def predict_dataloader(self):
-		return self.test_dataloader()
+		# predefined processing mapper for setup
+		self.masking_token_transform = T.Sequential(
+			MaskingTokenTransform(mask_ratio=0.1, mask_token=self.vocab[SpecToken.MASK]),
+			T.VocabTransform(self.vocab),
+			T.ToTensor(padding_value=self.vocab[SpecToken.PAD])
+		)
 	
 	def format_predict(self, prediction: pd.DataFrame):
 		
@@ -471,30 +439,17 @@ class MaskedESNLIDM(ESNLIDM):
 		# prepare batch of data for dataloader
 		b = self.list2dict(batch)
 		
-		b.update({
-			'premise_ids': self.text_transform(b['premise_tokens']),
-			'hypothesis_ids': self.text_transform(b['hypothesis_tokens']),
-			'a_true': {
-				'premise': self.rationale_transform(b['premise_rationale']),
-				'hypothesis': self.rationale_transform(b['hypothesis_rationale']),
-			},
-			'y_true': self.label_transform(b['label']),
-			'heuristic': {
-				'premise': self.heuristic_transform(b['premise_heuristic']),
-				'hypothesis': self.heuristic_transform(b['hypothesis_heuristic']),
-			}
-		})
+		log.debug('TODO: Check if premise_tokens + hypothesis_tokens actually concatenate the 2 list batch')
+		log.debug(f'premise_tokens = {b["premise_tokens"]}')
+		log.debug(f'hypothesis_tokens = {b["hypothesis_tokens"]}')
+		log.debug(f'premise + hypothesis tokens = {b["premise_tokens"] + b["hypothesis_tokens"]}')
 		
-		b['padding_mask'] = {
-			'premise': b['premise_ids'] == self.vocab[SpecToken.PAD],
-			'hypothesis': b['hypothesis_ids'] == self.vocab[SpecToken.PAD],
-		}
-		
+		b['input_ids'] = self.masking_token_transform(b['premise_tokens'] + b['hyphothesis_tokens'])
+		b['padding_mask'] = b['input_tokens'] == self.vocab[SpecToken.PAD]
 		return b
 	
 	def list2dict(self, batch):
 		# convert list of dict to dict of list
 		
-		if isinstance(batch, dict): return {k: list(v) for k, v in
-		                                    batch.items()}  # handle case where no batch
+		if isinstance(batch, dict): return {k: list(v) for k, v in batch.items()}  # handle case where no batch
 		return {k: [row[k] for row in batch] for k in batch[0]}

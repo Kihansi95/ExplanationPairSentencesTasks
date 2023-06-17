@@ -33,10 +33,10 @@ class SpecToken(str, ExtendedEnum):
 	UNK = '<unk>'
 	CLS = '<cls>'
 	MASK = '<mask>'
-	ENT_PER = '<PER>'
-	ENT_LOC = '<LOC>'
-	ENT_ORG = '<ORG>'
-	ENT_MISC = '<MISC>'
+	ENT_PER = '<per>'
+	ENT_LOC = '<loc>'
+	ENT_ORG = '<org>'
+	ENT_MISC = '<misc>'
 
 class Normalization(str, ExtendedEnum):
 	NONE = None

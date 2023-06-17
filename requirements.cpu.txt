@@ -133,7 +133,6 @@ spacy==3.4.1
 spacy-alignments==0.8.5
 spacy-legacy==3.0.9
 spacy-loggers==1.0.3
-spacy-transformers==1.1.7
 srsly==2.4.4
 stack-data==0.3.0
 tensorboard==2.11.0

@@ -11,6 +11,7 @@ import torch
 from modules.const import INF
 from modules.logger import log
 
+
 def rescale(attention: torch.Tensor or list, mask: torch.Tensor):
 	"""Project min value to 0 and max value to 1. Assign 0 to all position if uniform
 	
@@ -25,22 +26,22 @@ def rescale(attention: torch.Tensor or list, mask: torch.Tensor):
 	"""
 	if isinstance(attention, list):
 		attention = torch.tensor(attention)
-
+	
 	v_max = torch.max(attention + mask.float() * -INF, dim=1, keepdim=True).values
 	v_min = torch.min(attention + mask.float() * INF, dim=1, keepdim=True).values
-	v_min[v_min == v_max] = 0. # if v_min ==
+	v_min[v_min == v_max] = 0.  # if v_min ==
 	v_max[(v_max == 0) & (v_min == v_max)] = 1.
-	rescale_attention = (attention - v_min)/(v_max - v_min)
+	rescale_attention = (attention - v_min) / (v_max - v_min)
 	rescale_attention[mask] = 0.
 	return rescale_attention
 
 
 def hex2rgb(hex):
-	rgb = [int(hex[i:i + 2], 16) for i in [1,3,5] ]
+	rgb = [int(hex[i:i + 2], 16) for i in [1, 3, 5]]
 	return rgb
 
 
-def highlight(words: List[str], weights: Union[np.ndarray, torch.tensor, list], color:Union[str, Tuple[int]]=None):
+def highlight(words: List[str], weights: Union[np.ndarray, torch.tensor, list], color: Union[str, Tuple[int]] = None):
 	"""Build HTML that highlights words based on its weights
 	
 	Parameters
@@ -75,7 +76,7 @@ def highlight(words: List[str], weights: Union[np.ndarray, torch.tensor, list], 
 	
 	w_min, w_max = torch.min(weights), torch.max(weights)
 	
-	w_norm = (weights - w_min)/((w_max - w_min) + (w_max == w_min)*w_max)
+	w_norm = (weights - w_min) / ((w_max - w_min) + (w_max == w_min) * w_max)
 	
 	# make color
 	# change to rgb if given color is hex
@@ -84,12 +85,14 @@ def highlight(words: List[str], weights: Union[np.ndarray, torch.tensor, list], 
 	elif color[0] == '#' and len(color) == 7:
 		color = hex2rgb(color)
 	w_norm = (w_norm / MAX_ALPHA).tolist()
-
+	
 	# wrap each token in a span
-	highlighted_words = [f'<span style="background-color:rgba{(*color, w)};">' + word + '</span>' for word, w in zip(words, w_norm)]
-
+	highlighted_words = [f'<span style="background-color:rgba{(*color, w)};">' + word + '</span>' for word, w in
+	                     zip(words, w_norm)]
+	
 	# concatenate spans into a string
 	return ' '.join(highlighted_words)
+
 
 def report_score(scores: dict, logger, score_dir=None) -> None:
 	"""
@@ -116,14 +119,15 @@ def report_score(scores: dict, logger, score_dir=None) -> None:
 			src = path.join(logger.log_dir, 'hparams.yaml')
 			dst = path.join(score_dir, 'hparams.yaml')
 			shutil.copy2(src, dst)
-			
+		
 		score_path = path.join(score_dir or logger.log_dir, f'score{"" if idx == 0 else "_" + str(idx)}.json')
 		
 		with open(score_path, 'w') as fp:
 			json.dump(score, fp, indent='\t')
 			log.info(f'Score is saved at {score_path}')
-		
-def flatten_dict(nested: dict, sep:str='.') -> dict:
+
+
+def flatten_dict(nested: dict, sep: str = '.') -> dict:
 	"""
 	Convert a nested dictionary into a flatt dictionary
 	
@@ -154,13 +158,14 @@ def flatten_dict(nested: dict, sep:str='.') -> dict:
 			
 			for child_key, child_value in flat_item.items():
 				flat[current_key + sep + child_key] = child_value
-				
+		
 		else:
 			flat[current_key] = current_value
-			
-	return flat
 	
-def quick_flatten_dict(nested: dict, sep:str= '.') -> dict:
+	return flat
+
+
+def quick_flatten_dict(nested: dict, sep: str = '.') -> dict:
 	"""New version of how to flat a dictionary using pandas
 	
 	Parameters
@@ -178,7 +183,8 @@ def quick_flatten_dict(nested: dict, sep:str= '.') -> dict:
 	"""
 	return pd.json_normalize(nested, sep=sep).to_dict(orient='records')[0]
 
-def map_list2dict(batch: Union[List[Dict],Dict]) -> dict:
+
+def map_list2dict(batch: Union[List[Dict], Dict]) -> dict:
 	"""convert list of dict to dict of list
 	
 	Parameters
@@ -195,15 +201,15 @@ def map_list2dict(batch: Union[List[Dict],Dict]) -> dict:
 		return {k: list(v) for k, v in batch.items()}  # handle case where no batch
 	return {k: [row[k] for row in batch] for k in batch[0]}
 
+
 def recursive_list2dict(batch: Union[List[Dict], Dict]):
-	
 	if isinstance(batch, list):
 		
 		if isinstance(batch[0], dict):
 			batch = {k: [row[k] for row in batch] for k in batch[0]}
 		
 		elif isinstance(batch[0], list):
-			batch =  [item for sub_list in batch for item in sub_list]
+			batch = [item for sub_list in batch for item in sub_list]
 	
 	if isinstance(batch, dict):
 		
@@ -212,6 +218,7 @@ def recursive_list2dict(batch: Union[List[Dict], Dict]):
 			batch[k] = recursive_list2dict(batch[k])
 	
 	return batch
+
 
 def map_np2list(df: pd.DataFrame):
 	"""Auto convert numpy columns into list columns
@@ -229,12 +236,21 @@ def map_np2list(df: pd.DataFrame):
 	
 	return df.apply(lambda column: [c.tolist() for c in column] if isinstance(column[0], np.ndarray) else column)
 
-def binarize_attention(attention: Union[np.ndarray, torch.tensor, list], mass=0.8):
+
+# generate 4 attention map examples with pytorch
+attentions = [torch.rand(12, 12) for _ in range(4)]
+
+
+def binarize_attention(attention: Union[np.ndarray, torch.tensor],
+                       mass=None,
+                       topk=None,
+                       threshold=None,
+                       ):
 	"""Get a binary vector where sum of attention value of marked tokens are more than the attention mass.
 	
 	Parameters
 	----------
-	attention : array or list or torch.tensor
+	attention : array or list or `torch.Tensor`
 		attention map (sum into 1)
 	mass : float
 		minimum attention map to retain.
@@ -243,21 +259,65 @@ def binarize_attention(attention: Union[np.ndarray, torch.tensor, list], mass=0.
 	-------
 	torch.tensor or list or np.array
 	"""
-	if isinstance(attention, list):
-		attention = torch.tensor(attention)
 	
-	assert 0.9 < attention.sum() < 1.1, 'attention map isn\'t normalized'
+	if len(attention.size()) == 1:
+		attention = attention.unsqueeze(0)
 	
-	# Sort the distribution tensor in descending order
-	sorted_alpha, indices = torch.sort(attention, descending=True)
-	# Compute the cumulative sum of the sorted tensor
-	cumsum_alpha = torch.cumsum(sorted_alpha, dim=0)
-	# Find the index of the first element whose cumulative sum is >= 0.8
-	index = torch.argmax((cumsum_alpha >= mass).int(), dim=0)
-	# Create a binary mask with True for the elements with cumsum_alpha >= 0.8
-	b = torch.zeros_like(attention, dtype=torch.int)
-	b[indices[:index + 1]] = 1
-	return b
+	sums_row = attention.sum(dim=1)
+	assert ((0.9 < sums_row) & (sums_row < 1.1)).all(), 'attention map isn\'t normalized'
+	assert sum([mass is not None, topk is not None, threshold is not None]) == 1, \
+		'Only one of mass, topk, threshold can be specified'
+	
+	DEFAUT_MASS = 0.8
+	# if all parameters are None, set mass to default value
+	if mass is None and topk is None and threshold is None:
+		mass = DEFAUT_MASS
+		
+	if mass is not None:
+		# binarize attention map based on total mass of attention :
+		# give 1 on tokens with highest attention until total mass is reached
+		
+		assert 0 <= mass <= 1, 'mass must be between 0 and 1'
+		
+		# Sort the distribution tensor in descending order
+		sorted_alpha, indices = torch.sort(attention, descending=True, dim=-1)
+		# Compute the cumulative sum of the sorted tensor
+		cumsum_alpha = torch.cumsum(sorted_alpha, dim=-1)
+		# Find the index of the first element whose cumulative sum is >= 0.8
+		index = torch.argmax((cumsum_alpha >= mass).int(), dim=-1)
+		# Create a binary mask with True for the elements with cumsum_alpha >= 0.8
+		b = torch.zeros_like(attention, dtype=torch.float)
+		for i in range(b.shape[0]):  # Loop over the batch dimension
+			b[i, indices[i, :index[i] + 1]] = 1
+		
+		return b
+	
+	
+	if threshold is not None:
+		# binarize attention map based on fixed threshold
+		assert 0 < threshold < 1, 'threshold must be between 0 and 1'
+		return (attention > threshold).float()
+	
+	if topk is not None:
+		# binarize by taking topk highest attention tokens
+		assert isinstance(topk, int), 'topk must be an integer'
+		assert topk > 0, 'topk must be positive'
+		
+		if topk > attention.size(1) :
+			return torch.ones_like(attention, dtype=torch.float)
+		
+		# Sort the distribution tensor in descending order
+		sorted_alpha, indices = attention.sort(descending=True, dim=-1)
+		
+		b = torch.zeros_like(attention, dtype=torch.float)
+		batch_indices = torch.arange(attention.size(0)).unsqueeze(1).expand(-1, topk).to(attention.device)
+		topk_indices = indices[:, :topk]
+		
+		b[batch_indices, topk_indices] = 1.
+		return b
+	
+	raise ArithmeticError
+
 
 def topk_2d(m, k, **kwargs):
 	"""Get topk values and indices from 2d matrix
@@ -278,8 +338,10 @@ def topk_2d(m, k, **kwargs):
 	"""
 	k = int(k)
 	
-	# make sure k is smaller than number of elements in m
-	k = min(k, m.numel())
+	if k < 0 or k > m.numel():
+		# if k < 0, then get all elements
+		# if k is larger than number of elements in m, then get all elements
+		k = m.numel()
 	
 	# flatten into 1d array because torch can only work on 1d
 	values, top_indices = torch.topk(m.flatten(), k, **kwargs)
@@ -289,5 +351,3 @@ def topk_2d(m, k, **kwargs):
 	top_y = top_indices.remainder(m.shape[1])
 	
 	return values, (top_x, top_y)
-
-
