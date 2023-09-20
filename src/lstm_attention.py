@@ -1,4 +1,5 @@
 import os
+import pytorch_lightning as pl
 from datetime import timedelta
 from os import path
 import json
@@ -8,34 +9,17 @@ from codecarbon import EmissionsTracker, OfflineEmissionsTracker
 from pytorch_lightning.callbacks import Timer
 from pytorch_lightning.trainer.states import RunningStage
 
-from modules import report_score
+from modules import get_num_workers, report_score
 from modules.const import *
-from modules.inferences.prediction_writer import ParquetPredictionWriter
+from modules.inferences import get_prediction_writer
 from modules.logger import init_logging
 from modules.logger import log
 
-import pytorch_lightning as pl
+
 from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning import callbacks as cb
 
 from model_module import *
-
-def get_num_workers() -> int:
-	"""Get maximum logical workers that a machine has
-	
-	Returns
-	-------
-	num_workers : int
-		maximum workers number possible
-	"""
-	if hasattr(os, 'sched_getaffinity'):
-		try:
-			return len(os.sched_getaffinity(0))
-		except Exception:
-			pass
-	
-	num_workers = os.cpu_count()
-	return num_workers if num_workers is not None else 0
 
 def get_carbon_tracker(args, output_dir) -> EmissionsTracker:
 	"""Get carbon tracker based on argument
@@ -133,6 +117,7 @@ def parse_argument(prog: str = __name__, description: str = 'Train LSTM-based at
 	
 	# Predict configuration
 	parser.add_argument('--predict_path', type=str, help='Path to which model give predict')
+	parser.add_argument('--writer', type=str, choices=Writer.list(), default=Writer.JSON.value, help='Writer to write prediction. Default: json')
 	
 	# Pipeline
 	parser.add_argument('--train', action='store_true')
@@ -168,7 +153,6 @@ if __name__ == '__main__':
 		args.train = True
 	
 	DATA_CACHE = path.join(args.cache, 'dataset')
-	MODEL_CACHE = path.join(args.cache, 'models')
 	LOGS_CACHE = path.join(args.cache, 'logs')
 	
 	# init logging
@@ -225,7 +209,7 @@ if __name__ == '__main__':
 	###############
 	
 	model_args = dict(
-		cache_path=MODEL_CACHE,
+		cache_path=args.cache,
 		mode=args.mode,
 		vocab=dm.vocab,
 		lambda_entropy=args.lambda_entropy,
@@ -261,10 +245,25 @@ if __name__ == '__main__':
 	LOG_DIR = logger.log_dir
 	PREDICT_PATH = path.join(LOG_DIR, 'predictions')
 	
+	# if args.writer == Writer.PARQUET:
+	# 	from modules.inferences.html_prediction_writer import ParquetPredictionWriter
+	# 	Writer = ParquetPredictionWriter
+	# elif args.writer == Writer.HTML:
+	# 	from modules.inferences.html_prediction_writer import HtmlPredictionWriter
+	# 	Writer = HtmlPredictionWriter
+	# else:
+	# 	if args.writer != Writer.JSON:
+	# 		log.error(f'Unrecognized writer: {args.writer}, choose default: {Writer.JSON}')
+	# 	from modules.inferences.html_prediction_writer import JsonPredictionWriter
+	# 	Writer = JsonPredictionWriter
+	
 	# call back
 	early_stopping = cb.EarlyStopping('VAL/loss', patience=3, verbose=args.mode != Mode.EXP, mode='min')  # stop if no improvement withing 10 epochs
-	model_checkpoint = cb.ModelCheckpoint(filename='best', monitor='VAL/loss', mode='min')  # save the minimum val_loss
-	pred_writer = ParquetPredictionWriter(output_dir=PREDICT_PATH, dm=dm, write_interval='batch') # write output during batch. Note: call reassemble at the end
+	model_checkpoint = cb.ModelCheckpoint(filename='best', monitor='VAL/loss', mode='min')  # save the minimum val_los
+	pred_writer = get_prediction_writer(writer=args.writer, dm=dm, output_dir=PREDICT_PATH, write_interval='batch') # write output during epoch
+	
+	#Writer(output_dir=PREDICT_PATH, dm=dm, write_interval='batch') # write output during batch. Note: call reassemble at the end
+	
 	callbacks = [early_stopping, model_checkpoint, pred_writer]
 	
 	# Time tracking

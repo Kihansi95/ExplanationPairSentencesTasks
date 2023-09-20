@@ -7,7 +7,7 @@ from codecarbon import EmissionsTracker, OfflineEmissionsTracker
 from model_module import DualMlpAttentionModule, SingleMlpAttentionModule
 from modules import report_score
 from modules.const import InputType, Mode, TrackCarbon
-from modules.inferences.prediction_writer import ParquetPredictionWriter
+from modules.inferences.html_prediction_writer import ParquetPredictionWriter
 from modules.logger import init_logging
 from modules.logger import log
 

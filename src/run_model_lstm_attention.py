@@ -12,7 +12,7 @@ from pytorch_lightning.trainer.states import RunningStage
 from model_module.lstm.archival_lstm_module import ArchivalLstmModule
 from modules import report_score
 from modules.const import *
-from modules.inferences.prediction_writer import ParquetPredictionWriter, JsonPredictionWriter
+from modules.inferences.html_prediction_writer import ParquetPredictionWriter, JsonPredictionWriter
 from modules.logger import init_logging
 from modules.logger import log
 

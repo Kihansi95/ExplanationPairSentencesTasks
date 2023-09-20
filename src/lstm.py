@@ -1,9 +1,14 @@
 import json
 from argparse import ArgumentParser
+from datetime import timedelta
+
 from codecarbon import EmissionsTracker, OfflineEmissionsTracker
+from pytorch_lightning.callbacks import Timer
+from pytorch_lightning.trainer.states import RunningStage
 
 from modules import report_score
 from modules.const import *
+from modules.inferences.html_prediction_writer import ParquetPredictionWriter
 from modules.logger import init_logging
 from modules.logger import log
 
@@ -31,7 +36,19 @@ def get_num_workers() -> int:
 	num_workers = os.cpu_count()
 	return num_workers if num_workers is not None else 0
 
-def get_carbon_tracker(args) -> EmissionsTracker:
+
+def get_carbon_tracker(args, output_dir) -> EmissionsTracker:
+	"""Get carbon tracker based on argument
+
+	Parameters
+	----------
+	args : Any
+
+	Returns
+	-------
+	tracker : EmissionsTracker
+		Either online, offline tracker if we precise --carbon_tracker. None if this argument is absent.
+	"""
 	
 	if args.track_carbon is None:
 		return None
@@ -39,17 +56,17 @@ def get_carbon_tracker(args) -> EmissionsTracker:
 	if args.track_carbon == TrackCarbon.ONLINE:
 		tracker = EmissionsTracker(
 			project_name=f'{args.name}/{args.version}',
-			output_dir=logger.log_dir,
+			output_dir=output_dir,
 			log_level='critical'
 		)
 	elif args.track_carbon == TrackCarbon.OFFLINE:
 		tracker = OfflineEmissionsTracker(
 			project_name=f'{args.name}/{args.version}',
-			output_dir=logger.log_dir,
+			output_dir=output_dir,
 			log_level='critical',
 			country_iso_code='FRA'
 		)
-		
+	
 	tracker.start()
 	return tracker
 
@@ -66,8 +83,12 @@ def parse_argument(prog: str = __name__, description: str = 'Train LSTM model in
 	
 	# Optional stuff
 	parser.add_argument('--disable_log_color', action='store_true', help='Activate for console does not support coloring')
-	parser.add_argument('--OAR_ID', type=int, help='Get cluster ID to see error/output logs')
+	parser.add_argument('--server_message', type=str, help='Get cluster ID to see error/output logs')
+	
+	# For reports
 	parser.add_argument('--track_carbon', type=str, help='If precised will track down carbon')
+	parser.add_argument('--track_grad_norm', type=int, default=-1, help='Log gradient norm in tensorboard log')
+	parser.add_argument('--track_time', action='store_true', help='Enable time tracking')
 	
 	# Trainer params
 	parser.add_argument('--cache', '-o', type=str, default=path.join(os.getcwd(), '..', '.cache'), help='Path to temporary directory to store output of training process')
@@ -81,7 +102,6 @@ def parse_argument(prog: str = __name__, description: str = 'Train LSTM model in
 	parser.add_argument('--strategy', '-s', type=str, help='')
 	parser.add_argument('--fast_dev_run', action='store_true')
 	parser.add_argument('--detect_anomaly', action='store_true')
-	parser.add_argument('--track_grad_norm', type=int, default=-1)
 	parser.add_argument('--devices', type=int)
 	parser.add_argument('--num_nodes', type=int)
 	
@@ -109,12 +129,6 @@ def parse_argument(prog: str = __name__, description: str = 'Train LSTM model in
 	parser.add_argument('--test', action='store_true')
 	parser.add_argument('--predict', action='store_true')
 	
-	# Regularizer
-	parser.add_argument('--lambda_entropy', type=float, default=0., help='multiplier for entropy')
-	parser.add_argument('--lambda_supervise', type=float, default=0., help='multiplier for supervise loss')
-	parser.add_argument('--lambda_heuristic', type=float, default=0., help='multiplier for heuristic loss')
-	parser.add_argument('--lambda_lagrange', type=float, default=0., help='multiplier for relaxation of Lagrange (Supervision by entropy)')
-	
 	params = parser.parse_args()
 	params.shuffle = not params.shuffle_off
 	print('=== Parameters ===')
@@ -138,7 +152,6 @@ if __name__ == '__main__':
 		args.train = True
 	
 	DATA_CACHE = path.join(args.cache, 'dataset')
-	MODEL_CACHE = path.join(args.cache, 'models')
 	LOGS_CACHE = path.join(args.cache, 'logs')
 	
 	# init logging
@@ -147,12 +160,16 @@ if __name__ == '__main__':
 	else:
 		init_logging(color=True)
 		
-	if args.OAR_ID:
-		log.info(f'OAR_ID = {args.OAR_ID}')
-		
-	log.info(f'experimentation_name = {args.name}')
-	if args.resume:
-		log.warning('Resume from previous training')
+	if args.server_message:
+		log.debug('='*15)
+		log.debug('Server message :')
+		log.info(f'{args.server_message}')
+		log.debug('='*15)
+	log.info(f'Experimentation : {args.name}')
+	
+	##############
+	## Data setup
+	##############
 	
 	# Init data module
 	dm_kwargs = dict(cache_path=DATA_CACHE,
@@ -185,21 +202,22 @@ if __name__ == '__main__':
 	
 	# prepare data here before going to multiprocessing
 	dm.prepare_data()
+	
+	###############
+	## Model set up
+	###############
+	
 	model_args = dict(
-		cache_path=MODEL_CACHE,
+		cache_path=args.cache,
 		mode=args.mode,
 		vocab=dm.vocab,
-		lambda_entropy=args.lambda_entropy,
-		lambda_supervise=args.lambda_supervise,
-		lambda_lagrange=args.lambda_lagrange,
-		lambda_heuristic=args.lambda_heuristic,
 		pretrained_vectors=args.vectors,
 		concat_context=args.concat_context,
 		n_context=args.n_context,
 		d_hidden_lstm=args.d_hidden_lstm,
 		d_embedding=args.d_embedding,
 		data=args.data,
-		num_class=dm.num_class
+		num_class=len(dm.LABEL_ITOS)
 	)
 	
 	if dm.input_type == InputType.SINGLE:
@@ -210,11 +228,7 @@ if __name__ == '__main__':
 		msg = f'Unknown input type of dm {str(dm)}: {dm.input_type}'
 		log.error(msg)
 		raise ValueError(msg)
-	
-	# call back
-	early_stopping = cb.EarlyStopping('VAL/loss', patience=3, verbose=args.mode != Mode.EXP, mode='min')  # stop if no improvement withing 10 epochs
-	model_checkpoint = cb.ModelCheckpoint(filename='best', monitor='VAL/loss', mode='min')  # save the minimum val_loss
-	
+
 	# logger
 	logger = TensorBoardLogger(
 		save_dir=LOGS_CACHE,
@@ -222,6 +236,23 @@ if __name__ == '__main__':
 		version=args.version,
 		default_hp_metric=False # deactivate hp_metric on tensorboard visualization
 	)
+	
+	LOG_DIR = logger.log_dir
+	PREDICT_PATH = path.join(LOG_DIR, 'predictions')
+	
+	# call back
+	early_stopping = cb.EarlyStopping('VAL/loss', patience=3, verbose=args.mode != Mode.EXP, mode='min')  # stop if no improvement withing 10 epochs
+	model_checkpoint = cb.ModelCheckpoint(filename='best', monitor='VAL/loss', mode='min')  # save the minimum val_loss
+	pred_writer = ParquetPredictionWriter(output_dir=PREDICT_PATH, dm=dm, write_interval='batch')  # write output during batch. Note: call reassemble at the end
+	callbacks = [early_stopping, model_checkpoint, pred_writer]
+	
+	# Time tracking
+	if args.track_time:
+		timer = Timer(verbose=False)
+		callbacks.append(timer)
+	
+	# Carbon tracking
+	tracker = get_carbon_tracker(args, output_dir=LOG_DIR)
 	
 	trainer = pl.Trainer(
 		max_epochs=args.epoch,
@@ -232,7 +263,7 @@ if __name__ == '__main__':
 		logger=logger,
 		strategy=args.strategy,
 		fast_dev_run=args.fast_dev_run,
-		callbacks=[early_stopping, model_checkpoint],
+		callbacks=callbacks,
 		track_grad_norm=args.track_grad_norm, # track_grad_norm=2 for debugging
 		detect_anomaly=args.detect_anomaly, # deactivate on large scale experiemnt
 		benchmark=False,    # benchmark = False better time in NLP
@@ -244,47 +275,55 @@ if __name__ == '__main__':
 	ckpt_path = path.join(logger.log_dir, 'checkpoints', 'best.ckpt')
 	hparams_path = path.join(logger.log_dir, 'hparams.yaml')
 	
+	###########################################################################
+	## Train : either train model from scratch or by resuming previous training
+	###########################################################################
+	
 	if args.train:
+		log.info(f'Training...')
 		model = ModelModule(**model_args)
 		
 		if args.resume:
 			try:
+				log.debug(f'Model resume training from {ckpt_path}')
 				trainer.fit(model, datamodule=dm, ckpt_path=ckpt_path)
 			except FileNotFoundError:
-				log.info(f'Checkpoint fpath ({ckpt_path}) not found. Train from scratch.')
+				log.error(f'{ckpt_path} does not exist, run a new model instead')
 				trainer.fit(model, datamodule=dm)
+		else:
+			log.debug(f'Train new model from scratch')
+			trainer.fit(model, datamodule=dm)
 	
 	else:
+		log.debug(f'Model is not trained')
+		log.debug(f'\t Weights are loaded from {ckpt_path}')
+		log.debug(f'\t Hyperparameters are loaded from {hparams_path}')
 		model = ModelModule.load_from_checkpoint(
 			checkpoint_path=ckpt_path,
 			hparams_file=hparams_path,
 			**model_args
 		)
-		
-	# Carbon tracking
-	tracker = get_carbon_tracker(args)
 	
+	##################################
+	## Test: report score on test set
+	##################################
 	if args.train or args.test:
+		log.info(f'Testing...')
 		scores = trainer.test(model=model, datamodule=dm)
 		report_score(scores, logger, args.test_path)
 	
-	if args.predict:
-		# TODO complete: make a new parquet file to save predictions along dataset
-		predictions = trainer.predict(
-			model=model,
-			datamodule=dm
-		)
-		
-		log.warning('Prediction incompleted')
-		
-		#predict_path = fpath.join(logger.log_dir, f'predict.words')
-		
-		#with open(predict_path, 'w') as fp:
-		#	fp.write(predictions)
-		#	log.info(f'Predictions are saved at {predict_path}')
+	log.info(f'Reporting...')
 	
-	if tracker is not None:
+	if args.track_time:
+		for stage in [RunningStage.TRAINING, RunningStage.VALIDATING, RunningStage.TESTING]:
+			duration = timedelta(seconds=int(timer.time_elapsed(stage)))
+			log.info(f'Duration of stage {stage} : {duration}')
+	
+	if args.track_carbon:
 		emission = tracker.stop()
 		emission_str = f'Total emission in experiment trial: {emission} kgs'
 		log.info(emission_str)
-		
+	
+	log.info(f'Finished')
+
+	

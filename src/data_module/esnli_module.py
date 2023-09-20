@@ -1,6 +1,7 @@
 import pickle
 import sys
 from os import path
+from typing import Union
 
 import pandas as pd
 import pytorch_lightning as pl
@@ -17,11 +18,13 @@ from data.esnli.pipeline import PretransformedESNLI
 from data.esnli.transforms import HighlightTransform, HeuristicTransform, MaskingTokenTransform
 from data.transforms import LemmaLowerTokenizerTransform
 from modules import env, INF
+from modules.inferences.writable_interface import WritableInterface
 from modules.const import SpecToken, Normalization
 from modules.logger import log
 
 
-class ESNLIDM(pl.LightningDataModule):
+class ESNLIDM(pl.LightningDataModule, WritableInterface):
+	
 	name = 'eSNLI'
 	
 	def __init__(self, cache_path, batch_size=8, num_workers=0, n_data=-1, shuffle=True):
@@ -157,14 +160,26 @@ class ESNLIDM(pl.LightningDataModule):
 	def predict_dataloader(self):
 		return self.test_dataloader()
 	
-	def format_predict(self, prediction: pd.DataFrame):
+	def format_predict(self, prediction: Union[pd.DataFrame, dict]):
 		
 		# replace label
 		label_columns = ['y_hat', 'y_true']
 		label_itos = {idx: val for idx, val in enumerate(self.LABEL_ITOS)}
-		prediction.replace({c: label_itos for c in label_columns}, inplace=True)
+		
+		if isinstance(prediction, dict):
+			for c in label_columns:
+				prediction[c] = [self.LABEL_ITOS[y_hat] for y_hat in prediction[c]]
+		elif isinstance(prediction, pd.DataFrame):
+			prediction.replace({c: label_itos for c in label_columns}, inplace=True)
 		
 		return prediction
+	
+	def writing_tokens(self, datarow) -> dict:
+		
+		return {
+			'premise': datarow['premise_tokens'],
+			'hypothesis': datarow['hypothesis_tokens'],
+		}
 	
 	## ======= PRIVATE SECTIONS ======= ##
 	
@@ -349,8 +364,7 @@ class CLSTokenESNLIDM(ESNLIDM):
 			self.vocab.append_token(SpecToken.CLS)
 			
 			# Announce where we save the vocabulary
-			torch.save(self.vocab, self.vocab_path,
-			           pickle_protocol=pickle.HIGHEST_PROTOCOL)  # Use highest protocol to speed things up
+			torch.save(self.vocab, self.vocab_path, pickle_protocol=pickle.HIGHEST_PROTOCOL)  # Use highest protocol to speed things up
 			if env.disable_tqdm: log.info(f'Vocab CLS is saved at {self.vocab_path}')
 		
 		else:
@@ -426,10 +440,15 @@ class MaskedESNLIDM(ESNLIDM):
 	
 	def format_predict(self, prediction: pd.DataFrame):
 		
-		# replace label
+		# convert label index to label string
 		label_columns = ['y_hat', 'y_true']
 		label_itos = {idx: val for idx, val in enumerate(self.LABEL_ITOS)}
-		prediction.replace({c: label_itos for c in label_columns}, inplace=True)
+		
+		if isinstance(prediction, pd.Dataframe):
+			prediction.replace({c: label_itos for c in label_columns}, inplace=True)
+		elif isinstance(prediction, dict):
+			for c in label_columns:
+				prediction[c] = [label_itos[idx] for idx in prediction[c]]
 		
 		return prediction
 	

@@ -63,3 +63,10 @@ class Data(str, ExtendedEnum):
 	YELPHAT50 = 'yelphat50'
 	YELPHAT100 = 'yelphat100'
 	YELPHAT200 = 'yelphat200'
+	
+# Writer choice
+class Writer(str, ExtendedEnum):
+	JSON='json'
+	HTML='html'
+	PARQUET='parquet'
+	

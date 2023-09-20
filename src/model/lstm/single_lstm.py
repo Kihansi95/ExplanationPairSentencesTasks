@@ -77,17 +77,19 @@ class SingleLstm(Net):
 		# L = sequence_length
 		# h = hidden_dim = embedding_size
 		# C = n_class
-		ids = input_['ids']
+		embeddings = input_.get('embeddings', None)
 		
-		# Reproduce hidden representation from LSTM
-		x = self.embedding(ids)
+		if embeddings is not None:
+			x = embeddings
+		else:
+			ids = input_.get('ids', None)
+			x = self.embedding(ids)
 		
 		self.lstm.flatten_parameters()          # flatten parameters for data parallel
 		h_seq, (h_last, _) = self.lstm(x) # h_seq.shape???
 		
 		h_last = h_last[-self.d:].permute(1, 0, 2)      # (N, n_direction, d_hidden_lstm)
 		h_last = h_last.reshape(h_last.size(0), 1, -1)  # (N, 1, n_direction * d_hidden_lstm)
-		
 		h_last = h_last.squeeze(dim=1)
 		
 		x = self.fc_squeeze(h_last)  # (N, d_fc_out)

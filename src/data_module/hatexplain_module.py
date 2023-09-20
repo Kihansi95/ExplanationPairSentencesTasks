@@ -1,5 +1,6 @@
 import pickle
 import sys
+from typing import Union
 
 import numpy as np
 import pandas as pd
@@ -15,14 +16,16 @@ from os import path
 
 from data.transforms import EntropyTransform
 from modules import env
+from modules.inferences.writable_interface import WritableInterface
 from modules.const import Normalization, SpecToken, INF
 from modules.logger import log
 
 
-class HateXPlainDM(pl.LightningDataModule):
+
+class HateXPlainDM(pl.LightningDataModule, WritableInterface):
     name = 'HateXPlain'
 
-    def __init__(self, cache_path, batch_size=8, num_workers=0, n_data=-1, shuffle=True):
+    def __init__(self, cache_path, batch_size=8, num_workers=0, n_data=-1, shuffle=True, fetch_data=False):
         super().__init__()
         self.cache_path = cache_path
         self.batch_size = batch_size
@@ -30,6 +33,7 @@ class HateXPlainDM(pl.LightningDataModule):
         self.n_data = n_data
         self.num_workers = num_workers
         self.shuffle = shuffle
+        self.fetch_data = fetch_data
         self.input_type = HateXPlain.INPUT
         self.LABEL_ITOS = HateXPlain.LABEL_ITOS
 
@@ -124,40 +128,56 @@ class HateXPlainDM(pl.LightningDataModule):
     def predict_dataloader(self):
         return self.test_dataloader()
 
-    def format_predict(self, prediction: pd.DataFrame):
+    def format_predict(self, prediction: Union[pd.DataFrame, dict]):
     
         # replace label
         label_columns = ['y_hat', 'y_true']
-        label_itos = {idx: val for idx, val in enumerate(self.LABEL_ITOS)}
-        prediction.replace({c: label_itos for c in label_columns}, inplace=True)
-    
-        # normalize heuristic into distribution
-        sum_heuris = prediction['heuristic'].apply(lambda x: sum(x))
-        if (sum_heuris < 0).any():
-            prediction['heuristic'] = prediction['heuristic'].apply(lambda x: np.exp(x).tolist())
-    
-        if 'text_tokens' not in prediction.columns:
-            itos = self.vocab.get_itos()
-            text_tokens = [[itos[ids] for ids in token_ids] for token_ids in prediction['tokens'].tolist()]
-            prediction['text_tokens'] = pd.Series(text_tokens)
+        
+        if isinstance(prediction, dict):
+            
+            for c in label_columns:
+                prediction[c] = [self.LABEL_ITOS[y_hat] for y_hat in prediction[c]]
+                
+            if 'post_tokens' not in prediction.keys():
+                itos = self.vocab.get_itos()
+                text_tokens = [[itos[ids] for ids in token_ids] for token_ids in prediction['tokens']]
+                prediction['post_tokens'] = text_tokens
+                
+        elif isinstance(prediction, pd.DataFrame):
+            
+            prediction.replace({c: self.LABEL_ITOS for c in label_columns}, inplace=True)
+        
+            # normalize heuristic into distribution
+            sum_heuris = prediction['heuristic'].apply(lambda x: sum(x))
+            if (sum_heuris < 0).any():
+                prediction['heuristic'] = prediction['heuristic'].apply(lambda x: np.exp(x).tolist())
+        
+            if 'post_tokens' not in prediction.columns:
+                itos = self.vocab.get_itos()
+                text_tokens = [[itos[ids] for ids in token_ids] for token_ids in prediction['tokens'].tolist()]
+                prediction['post_tokens'] = pd.Series(text_tokens)
     
     
         return prediction
+    
+    def writing_tokens(self, datarow):
+        return datarow['post_tokens']
 
     ## ======= PRIVATE SECTIONS ======= ##
     def collate(self, batch):
         # prepare batch of data for dataloader
         batch = self.list2dict(batch)
-    
+        
         b = {
-            'post_tokens': batch['post_tokens'],
-            'rationale': batch['rationale'],
             'tokens': self.text_transform(batch['post_tokens']),
             'a_true': self.rationale_transform(batch['rationale']),
             'heuristic': self.heuristic_transform(batch['heuristic']),
             'y_true': self.label_transform(batch['label'])
         }
-
+        
+        if self.fetch_data:
+            b.update(batch)
+        
         b['padding_mask'] = b['tokens'] == self.vocab[SpecToken.PAD]
         b['a_true_entropy'] = self.entropy_transform(b['a_true'], b['padding_mask'])
         return b

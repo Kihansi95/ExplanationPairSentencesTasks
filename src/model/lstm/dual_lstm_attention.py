@@ -78,7 +78,6 @@ class DualLstmAttention(Net):
         
         Returns:
         """
-		x = self.embedding(x)
 		n_direction = int(self.bidirectional) + 1
 		
 		# hidden.size() == (1, N, d_hidden_lstm)
@@ -91,26 +90,37 @@ class DualLstmAttention(Net):
 		
 		return hidden, hseq
 	
-	def forward(self, premise_ids, hypothesis_ids, premise_padding=None, hypothesis_padding=None):
-		"""
+	#def forward(self, premise_ids, hypothesis_ids, premise_padding=None, hypothesis_padding=None):
+	def forward(self, **input_):
 
-		Args:
-			inputs: ( input1 (N, L, h) , input2(N, L, h), optional: mask1, optional: mask2)
-
-		Returns:
-
-		"""
 		# N = batch_size
 		# L = sequence_length
 		# h = hidden_dim = embedding_size
 		# C = n_class
-		ids = {'premise': premise_ids, 'hypothesis': hypothesis_ids}
+		
+		if 'premise_embeddings' in input_ and  'hypothesis_embeddings' in input_:
+			premise_embeddings = input_['premise_embeddings']
+			hypothesis_embeddings = input_['hypothesis_embeddings']
+			bsz = premise_embeddings.size(0)
+			l_premise = premise_embeddings.size(1)
+			l_hypothesis = hypothesis_embeddings.size(1)
+			premise_padding = input_.get('premise_padding', torch.zeros(bsz, l_premise).bool())
+			hypothesis_padding = input_.get('hypothesis_padding', torch.zeros(bsz, l_hypothesis).bool())
+		else:
+			premise_ids = input_['premise_ids']
+			hypothesis_ids = input_['hypothesis_ids']
+			premise_embeddings = self.embedding(premise_ids)
+			hypothesis_embeddings = self.embedding(hypothesis_ids)
+			premise_padding = input_.get('premise_padding', torch.zeros_like(premise_ids).bool())
+			hypothesis_padding = input_.get('hypothesis_padding', torch.zeros_like(hypothesis_ids).bool())
+			
+		embeddings = {'premise': premise_embeddings, 'hypothesis': hypothesis_embeddings}
 		padding_mask = {'premise': premise_padding, 'hypothesis': hypothesis_padding}
 		
 		# Reproduce hidden representation from LSTM
 		h_last = dict()
 		h_seq = dict()
-		for side, x in ids.items():
+		for side, x in embeddings.items():
 			# h_last.size() == (N, 1, d_out_lstm)
 			# h_seq.size() == (N, L, d_out_lstm)
 			h_last[side], h_seq[side] = self.forward_lstm(x)
@@ -123,7 +133,7 @@ class DualLstmAttention(Net):
 		# Compute cross attention
 		attn_weights = dict()
 		context = dict()
-		sides = list(ids.keys())
+		sides = list(embeddings.keys())
 		for s, s_bar in sides, sides[::-1]:
 			# context.size() == (N, 1, d_attention)
 			# attn_weight.size() == (N, 1, L)

@@ -79,23 +79,39 @@ class SingleLstmAttention(Net):
 	
 	def forward(self, **input_):
 		"""
-
-		Args:
-			inputs: ( input1 (N, L, h) , input2(N, L, h), optional: mask1, optional: mask2)
-
-		Returns:
-
+		
+		Parameters
+		----------
+		ids: torch.Tensor
+			(N, L) tensor of token ids.
+		embeddings: torch.Tensor, optional
+			(N, L, d_embedding) tensor of embeddings. If embeddings is provided, ids would be ignored
+		mask: torch.Tensor, optional
+			(N, L) tensor of mask. If mask is not provided, it would be generated from ids
+			
+		Returns
+		-------
+		logits: torch.Tensor
+			(N, C) tensor of logits
+		attention: torch.Tensor
+			(N, L) tensor of attention weights
 		"""
+
 		# N = batch_size
 		# L = sequence_length
 		# h = hidden_dim = embedding_size
 		# C = n_class
-		ids = input_['ids']
-		mask = input_.get('mask', torch.zeros_like(ids))
+		if 'embeddings' in input_:
+			x = input_['embeddings']
+			mask = input_.get('mask', torch.zeros(x.size(0), x.size(1), device=x.device, dtype=torch.bool))
+		else:
+			ids = input_.get('ids', None)
+			x = self.embedding(ids)
+			mask = input_.get('mask', torch.zeros_like(ids, device=ids.device, dtype=torch.bool))
+		
+		#x = self.embedding(ids)
 		
 		# Reproduce hidden representation from LSTM
-		x = self.embedding(ids)
-		
 		self.lstm.flatten_parameters()          # flatten parameters for data parallel
 		h_seq, (h_last, _) = self.lstm(x) # h_seq.shape???
 		

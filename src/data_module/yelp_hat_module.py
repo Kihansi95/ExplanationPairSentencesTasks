@@ -17,13 +17,14 @@ from data.transforms import EntropyTransform
 from data.yelp_hat.spacy_pretok_dataset import SpacyPretokenizeYelpHat
 from modules import env
 from modules.const import Normalization, SpecToken, INF
+from modules.inferences.writable_interface import WritableInterface
 from modules.logger import log
 
-class YelpHatDM(pl.LightningDataModule):
+class YelpHatDM(pl.LightningDataModule, WritableInterface):
 	
 	name='YelpHat'
 	
-	def __init__(self, cache_path, batch_size=8, num_workers=0, n_data=-1, shuffle=True):
+	def __init__(self, cache_path, batch_size=8, num_workers=0, n_data=-1, shuffle=True, fetch_data=False):
 		super().__init__()
 		self.cache_path = cache_path
 		self.batch_size = batch_size
@@ -33,6 +34,7 @@ class YelpHatDM(pl.LightningDataModule):
 		self.num_workers = num_workers
 		self.spacy_model = spacy.load('en_core_web_sm')
 		self.shuffle = shuffle
+		self.fetch_data = fetch_data
 		self.input_type = SpacyPretokenizeYelpHat.INPUT
 		self.LABEL_ITOS = SpacyPretokenizeYelpHat.LABEL_ITOS
 		
@@ -162,17 +164,26 @@ class YelpHatDM(pl.LightningDataModule):
 		
 		return prediction
 	
+	def writing_tokens(self, datarow):
+		return datarow['text_tokens']
+	
 	## ======= PRIVATE SECTIONS ======= ##
 	def collate(self, batch):
 		# prepare batch of data for dataloader
 		batch = self.list2dict(batch)
 
 		b = {
+			'text_tokens': batch['text_tokens'],
+			'ham': batch['ham'],
+			'a_heu': batch['heuristic'],
 			'tokens': self.text_transform(batch['text_tokens']),
 			'a_true': self.ham_transform(batch['ham']),
 			'heuristic': self.heuristic_transform(batch['heuristic']),
 			'y_true': self.label_transform(batch['label'])
 		}
+		
+		if self.fetch_data:
+			b.update(batch)
 		
 		b['padding_mask'] = b['tokens'] == self.vocab[SpecToken.PAD]
 		b['a_true_entropy'] = self.entropy_transform(b['a_true'], b['padding_mask'])
@@ -193,7 +204,7 @@ class TransformedYelpHat50DM(YelpHatDM):
 		super(TransformedYelpHat50DM, self).__init__(**kwargs)
 		
 		for idx in range(3):
-			data[f'ham_{idx}'] = data[f'ham_html_{idx}'].apply(lambda x: yelp_hat_ham(x, spacy_model)).apply(
+			data[f'ham_{idx}'] = data[f'ham_html_{idx}'].apply(lambda x: yelp_hat_ham(x, self.spacy_model)).apply(
 				lambda x: np.array(x))
 			
 		binarize_ham_transform = BinarizingAnnotationTransform()
