@@ -9,9 +9,13 @@ EPS = 1e-30 # Epsilon
 
 # abstract enum
 class ExtendedEnum(Enum):
+	
 	@classmethod
 	def list(cls):
 		return list(map(lambda c: c.value, cls))
+	
+	def __str__(self):
+		return self.value
 
 # Experiment training mode
 class Mode(str, ExtendedEnum):
@@ -33,6 +37,7 @@ class SpecToken(str, ExtendedEnum):
 	UNK = '<unk>'
 	CLS = '<cls>'
 	MASK = '<mask>'
+	SEP = '<sep>'
 	ENT_PER = '<per>'
 	ENT_LOC = '<loc>'
 	ENT_ORG = '<org>'

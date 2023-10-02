@@ -84,6 +84,7 @@ def _reformat_dataframe(data: pd.DataFrame):
 		"""
 		
 		rename_cols = {
+			'pairID': 'id',
 			'Sentence1': 'premise',
 			'Sentence2': 'hypothesis',
 			'gold_label': 'label',
@@ -92,12 +93,11 @@ def _reformat_dataframe(data: pd.DataFrame):
 			'Sentence2_marked_1': 'highlight_hypothesis'
 		}
 		
-		drop_cols = ['pairID', 'WorkerId'
-		                       'Sentence1_Highlighted_1', 'Sentence2_Highlighted_1',
-		             'Explanation_2', 'Sentence1_marked_2', 'Sentence2_marked_2',
-		             'Sentence1_Highlighted_2', 'Sentence2_Highlighted_2',
-		             'Explanation_3', 'Sentence1_marked_3', 'Sentence2_marked_3',
-		             'Sentence1_Highlighted_3', 'Sentence2_Highlighted_3']
+		drop_cols = ['WorkerId', 'Sentence1_Highlighted_1', 'Sentence2_Highlighted_1',
+			'Explanation_2', 'Sentence1_marked_2', 'Sentence2_marked_2',
+			'Sentence1_Highlighted_2', 'Sentence2_Highlighted_2',
+			'Explanation_3', 'Sentence1_marked_3', 'Sentence2_marked_3',
+			'Sentence1_Highlighted_3', 'Sentence2_Highlighted_3']
 		
 		if data.isnull().values.any():
 			log.warning('Original dataset contain NA values, drop these lines.')
@@ -109,7 +109,7 @@ def _reformat_dataframe(data: pd.DataFrame):
 			# drop unneeded
 		).drop(
 			columns=drop_cols, errors='ignore'
-		)[['premise', 'hypothesis', 'label', 'explanation', 'highlight_premise', 'highlight_hypothesis']]
+		)[['id', 'premise', 'hypothesis', 'label', 'explanation', 'highlight_premise', 'highlight_hypothesis']]
 		
 		def correct_quote(txt, hl):
 			"""

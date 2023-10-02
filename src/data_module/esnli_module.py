@@ -55,9 +55,9 @@ class ESNLIDM(pl.LightningDataModule, WritableInterface):
 			'heuristic': heuristic_transform,
 		}
 		self.rename_columns = {
-			'premise': 'premise_tokens',
-			'hypothesis': 'hypothesis_tokens',
-			'highlight_premise': 'premise_rationale',
+			'premise': 'tokens.premise',
+			'hypothesis': 'tokens.hypothesis',
+			'highlight_premise': 'rationale.premise',
 			'highlight_hypothesis': 'hypothesis_rationale',
 			'heuristic': 'heuristic'
 		}
@@ -77,28 +77,23 @@ class ESNLIDM(pl.LightningDataModule, WritableInterface):
 			
 			# return a single list of tokens
 			def flatten_token(batch):
-				return [token for sentence in batch['premise_tokens'] + batch['hypothesis_tokens']
-				        for token in sentence]
+				return [token for sentence in batch['tokens.premise'] + batch['tokens.hypothesis'] for token in sentence]
 			
-			train_set = PretransformedESNLI(transformations=self.transformations,
-			                                column_name=self.rename_columns, root=self.cache_path,
-			                                split='train', n_data=self.n_data)
+			train_set = PretransformedESNLI(transformations=self.transformations, column_name=self.rename_columns, root=self.cache_path, split='train', n_data=self.n_data)
 			
 			# build vocab from train set
 			dp = train_set.batch(self.batch_size).map(self.list2dict).map(flatten_token)
 			
 			# Build vocabulary from iterator.
-			iter_tokens = tqdm(iter(dp), desc='Building vocabulary', total=len(dp), unit='sents',
-			                   file=sys.stdout, disable=env.disable_tqdm)
+			iter_tokens = tqdm(iter(dp), desc='Building vocabulary', total=len(dp), unit='sents', file=sys.stdout, disable=env.disable_tqdm)
 			if env.disable_tqdm: log.info(f'Building vocabulary')
-			vocab = build_vocab_from_iterator(iterator=iter_tokens,
-			                                  specials=[SpecToken.PAD, SpecToken.UNK])
+			vocab = build_vocab_from_iterator(iterator=iter_tokens, specials=[SpecToken.PAD, SpecToken.UNK])
 			
 			vocab.set_default_index(vocab[SpecToken.UNK])
 			
+			# Use highest protocol to speed things up
+			torch.save(vocab, self.vocab_path, pickle_protocol=pickle.HIGHEST_PROTOCOL)
 			# Announce where we save the vocabulary
-			torch.save(vocab, self.vocab_path,
-			           pickle_protocol=pickle.HIGHEST_PROTOCOL)  # Use highest protocol to speed things up
 			iter_tokens.set_postfix({'fpath': self.vocab_path})
 			if env.disable_tqdm: log.info(f'Vocabulary is saved at {self.vocab_path}')
 			iter_tokens.close()
@@ -177,8 +172,8 @@ class ESNLIDM(pl.LightningDataModule, WritableInterface):
 	def writing_tokens(self, datarow) -> dict:
 		
 		return {
-			'premise': datarow['premise_tokens'],
-			'hypothesis': datarow['hypothesis_tokens'],
+			'premise': datarow['tokens.premise'],
+			'hypothesis': datarow['tokens.hypothesis'],
 		}
 	
 	## ======= PRIVATE SECTIONS ======= ##
@@ -188,22 +183,22 @@ class ESNLIDM(pl.LightningDataModule, WritableInterface):
 		b = self.list2dict(batch)
 		
 		b.update({
-			'premise_ids': self.text_transform(b['premise_tokens']),
-			'hypothesis_ids': self.text_transform(b['hypothesis_tokens']),
+			'ids.premise': self.text_transform(b['tokens.premise']),
+			'ids.hypothesis': self.text_transform(b['tokens.hypothesis']),
 			'a_true': {
-				'premise': self.rationale_transform(b['premise_rationale']),
-				'hypothesis': self.rationale_transform(b['hypothesis_rationale']),
+				'premise': self.rationale_transform(b['rationale.premise']),
+				'hypothesis': self.rationale_transform(b['rationale.hypothesis']),
 			},
 			'y_true': self.label_transform(b['label']),
 			'heuristic': {
-				'premise': self.heuristic_transform(b['premise_heuristic']),
-				'hypothesis': self.heuristic_transform(b['hypothesis_heuristic']),
+				'premise': self.heuristic_transform(b['heuristic.premise']),
+				'hypothesis': self.heuristic_transform(b['heuristic.hypothesis']),
 			}
 		})
 		
 		b['padding_mask'] = {
-			'premise': b['premise_ids'] == self.vocab[SpecToken.PAD],
-			'hypothesis': b['hypothesis_ids'] == self.vocab[SpecToken.PAD],
+			'premise': b['ids.premise'] == self.vocab[SpecToken.PAD],
+			'hypothesis': b['ids.hypothesis'] == self.vocab[SpecToken.PAD],
 		}
 		
 		return b
@@ -249,10 +244,10 @@ class BertESNLIDM(pl.LightningDataModule):
 			'heuristic': heuristic_transform,
 		}
 		self.rename_columns = {
-			'premise': 'premise_tokens',
-			'hypothesis': 'hypothesis_tokens',
-			'highlight_premise': 'premise_rationale',
-			'highlight_hypothesis': 'hypothesis_rationale',
+			'premise': 'tokens.premise',
+			'hypothesis': 'tokens.hypothesis',
+			'highlight_premise': 'rationale.premise',
+			'highlight_hypothesis': 'rationale.hypothesis',
 			'heuristic': 'heuristic'
 		}
 	
@@ -321,18 +316,18 @@ class BertESNLIDM(pl.LightningDataModule):
 		b = self.list2dict(batch)
 		
 		b.update({
-			'premise_ids': self.text_transform(b['premise_tokens']),
-			'hypothesis_ids': self.text_transform(b['hypothesis_tokens']),
+			'ids.premise': self.text_transform(b['tokens.premise']),
+			'ids.hypothesis': self.text_transform(b['tokens.hypothesis']),
 			'a_true': {
-				'premise': self.rationale_transform(b['premise_rationale']),
-				'hypothesis': self.rationale_transform(b['hypothesis_rationale']),
+				'premise': self.rationale_transform(b['rationale.premise']),
+				'hypothesis': self.rationale_transform(b['rationale.hypothesis']),
 			},
 			'y_true': self.label_transform(b['label'])
 		})
 		
 		b['padding_mask'] = {
-			'premise': b['premise_ids'] == self.vocab[SpecToken.PAD],
-			'hypothesis': b['hypothesis_ids'] == self.vocab[SpecToken.PAD],
+			'premise': b['ids.premise'] == self.vocab[SpecToken.PAD],
+			'hypothesis': b['ids.hypothesis'] == self.vocab[SpecToken.PAD],
 		}
 		
 		return b
@@ -378,7 +373,7 @@ class CLSTokenESNLIDM(ESNLIDM):
 		
 		# we change here the shape of the dictionary b
 		# concatenation for one sentence.
-		t = b["premise_ids"].shape[0]
+		t = b["ids.premise"].shape[0]
 		cls_ids = torch.tensor([self.vocab[SpecToken.CLS]]).repeat(t, 1)
 		cls_padding = torch.tensor([0.]).repeat(t, 1)
 		att_padding = torch.tensor([0.]).repeat(t, 1)
@@ -390,7 +385,7 @@ class CLSTokenESNLIDM(ESNLIDM):
 		)
 		
 		b.update({
-			'tokens': torch.cat((cls_ids, b['premise_ids'], b['hypothesis_ids']), 1),
+			'tokens': torch.cat((cls_ids, b['ids.premise'], b['ids.hypothesis']), 1),
 			'padding_mask': torch.cat((cls_padding, b['padding_mask']['premise'], b['padding_mask']['hypothesis']), 1),
 			'a_true': torch.cat((att_padding, b['a_true']['premise'], b['a_true']['hypothesis']), 1),
 			'a_true_entropy': num / den
@@ -458,12 +453,12 @@ class MaskedESNLIDM(ESNLIDM):
 		# prepare batch of data for dataloader
 		b = self.list2dict(batch)
 		
-		log.debug('TODO: Check if premise_tokens + hypothesis_tokens actually concatenate the 2 list batch')
-		log.debug(f'premise_tokens = {b["premise_tokens"]}')
-		log.debug(f'hypothesis_tokens = {b["hypothesis_tokens"]}')
-		log.debug(f'premise + hypothesis tokens = {b["premise_tokens"] + b["hypothesis_tokens"]}')
+		log.debug('TODO: Check if tokens.premise + tokens.hypothesis actually concatenate the 2 list batch')
+		log.debug(f'tokens.premise = {b["tokens.premise"]}')
+		log.debug(f'tokens.hypothesis = {b["tokens.hypothesis"]}')
+		log.debug(f'premise + hypothesis tokens = {b["tokens.premise"] + b["tokens.hypothesis"]}')
 		
-		b['input_ids'] = self.masking_token_transform(b['premise_tokens'] + b['hyphothesis_tokens'])
+		b['input_ids'] = self.masking_token_transform(b['tokens.premise'] + b['hyphothesis_tokens'])
 		b['padding_mask'] = b['input_tokens'] == self.vocab[SpecToken.PAD]
 		return b
 	

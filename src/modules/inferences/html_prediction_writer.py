@@ -183,7 +183,7 @@ class HtmlPredictionWriter(BasePredictionWriter):
 			heuristic_map = self.highlighter.highlight_tokens(entry['a_heu'])
 				
 			row = f"""<tr>
-				<td>_</td>
+				<td>{entry['id']}</td>
 				<td>{attention_map}</td>
 				<td>{entry["y_hat"]}</td>
 				<td>{entry["y_true"]}</td>
