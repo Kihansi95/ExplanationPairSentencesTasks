@@ -130,8 +130,8 @@ class DualLSTMAttentionModule(pl.LightningModule):
         heuristic = batch['heuristic']
         
         y_hat, a_hat = self(
-            premise_ids=batch['premise_ids'],
-            hypothesis_ids=batch['hypothesis_ids'],
+            premise_ids=batch['tokens.ids.premise'],
+            hypothesis_ids=batch['tokens.ids.hypothesis'],
             premise_padding=padding_mask['premise'],
             hypothesis_padding=padding_mask['hypothesis']
         )
@@ -183,8 +183,8 @@ class DualLSTMAttentionModule(pl.LightningModule):
         
         padding_mask = batch['padding_mask']
         y_hat, a_hat = self(
-            premise_ids=batch['premise_ids'],
-            hypothesis_ids=batch['hypothesis_ids'],
+            premise_ids=batch['tokens.ids.premise'],
+            hypothesis_ids=batch['tokens.ids.hypothesis'],
             premise_padding=padding_mask['premise'],
             hypothesis_padding=padding_mask['hypothesis']
         )
@@ -203,8 +203,8 @@ class DualLSTMAttentionModule(pl.LightningModule):
         
         padding_mask = batch['padding_mask']
         y_hat, a_hat = self(
-            premise_ids=batch['premise_ids'],
-            hypothesis_ids=batch['hypothesis_ids'],
+            premise_ids=batch['tokens.ids.premise'],
+            hypothesis_ids=batch['tokens.ids.hypothesis'],
             premise_padding=padding_mask['premise'],
             hypothesis_padding=padding_mask['hypothesis'])
         
@@ -237,14 +237,12 @@ class DualLSTMAttentionModule(pl.LightningModule):
         if flat_a_hat.size(0) > 0:
             metric_a = self.attention_metrics[stage](flat_a_hat, flat_a_true)
             for s in a_hat:    metric_a['a:entropy'] = self.entropy_metric[stage](a_hat[s], padding_mask[s])
-            metric_a = {f'{stage}/{k}': v.item() for k, v in
-                        metric_a.items()}  # put metrics within same stage under the same folder
+            metric_a = {f'{stage}/{k}': v.item() for k, v in metric_a.items()}  # put under same folder of stage
             self.log_dict(metric_a, prog_bar=True, rank_zero_only=rank_zero_only)
         
         # log for classification metrics
         metric_y = self.y_metrics[stage](y_hat, y_true)
-        metric_y = {f'{stage}/{k}': v for k, v in
-                    metric_y.items()}  # put metrics within same stage under the same folder
+        metric_y = {f'{stage}/{k}': v for k, v in metric_y.items()}  # put under same folder of stage
         self.log_dict(metric_y, prog_bar=True, rank_zero_only=rank_zero_only)
         
         if stage != 'TEST':

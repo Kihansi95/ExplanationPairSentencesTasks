@@ -32,20 +32,18 @@ def rescale(attention: torch.Tensor or list, mask: torch.Tensor = None):
     """
     if isinstance(attention, list):
         attention = torch.tensor(attention)
-    
     is_instance = len(attention.shape) < 2
     if is_instance:
         attention = attention.unsqueeze(0)
     if mask is None:
         mask = torch.zeros_like(attention, dtype=torch.bool)
-    
     v_max = torch.max(attention + mask.float() * -INF, dim=1, keepdim=True).values
     v_min = torch.min(attention + mask.float() * INF, dim=1, keepdim=True).values
     v_min[v_min == v_max] = 0.  # if v_min ==
     v_max[(v_max == 0) & (v_min == v_max)] = 1.
     rescale_attention = (attention - v_min) / (v_max - v_min)
     rescale_attention[mask] = 0.
-    
+   
     if is_instance:
         return rescale_attention.squeeze(0)
     else:
@@ -223,7 +221,7 @@ def hex2rgb(hex):
     return rgb
 
 
-def highlight(words: List[str], weights: Union[np.ndarray, torch.tensor, list], color: Union[str, Tuple[int]] = None):
+def highlight(words: List[str], weights: Union[np.ndarray, torch.tensor, list], color: Union[str, Tuple[int]] = None, normalize_weight: bool=True):
     """Build HTML that highlights words based on its weights
     
     Parameters
@@ -249,6 +247,7 @@ def highlight(words: List[str], weights: Union[np.ndarray, torch.tensor, list], 
     """
     MAX_ALPHA = 0.8
     
+    # convert all type to torch tensor
     if isinstance(weights, np.ndarray):
         weights = torch.from_numpy(weights)
     elif isinstance(weights, list):
@@ -256,11 +255,12 @@ def highlight(words: List[str], weights: Union[np.ndarray, torch.tensor, list], 
     
     weights = weights.float()
     
-    w_min, w_max = torch.min(weights), torch.max(weights)
-    
-    w_norm = (weights - w_min) / ((w_max - w_min) + (w_max == w_min) * w_max)
-    
-    
+    # normalize weights
+    if normalize_weight:
+        w_min, w_max = torch.min(weights), torch.max(weights)
+        w_norm = (weights - w_min) / ((w_max - w_min) + (w_max == w_min) * w_max)
+    else:
+        w_norm = weights
     
     # make color
     # change to rgb if given color is hex
@@ -273,12 +273,12 @@ def highlight(words: List[str], weights: Union[np.ndarray, torch.tensor, list], 
     # wrap each token in a span
     highlighted_words = []
     for word, w in zip(words, w_norm):
-        span = f'<span style="background-color:rgba{(*color, w)};">' + word + '</span>'
+        span = f'<span style="background-color:rgba{(*color, w)};">' + word + ' </span>'
         highlighted_words.append(span)
     #highlighted_words = [f'<span style="background-color:rgba{(*color, w)};">' + word + '</span>' for word, w in zip(words, w_norm)]
     
     # concatenate spans into a string
-    return ' '.join(highlighted_words)
+    return ''.join(highlighted_words)
 
 
 ########################################################################################################################
@@ -424,7 +424,7 @@ def recursive_dict2list( value, i):
     if isinstance(value, list):
         return value[i]
     elif isinstance(value, dict):
-        return {k: recursive_unpack(v, i) for k, v in value.items()}
+        return {k: recursive_dict2list(v, i) for k, v in value.items()}
     else:
         return value
 

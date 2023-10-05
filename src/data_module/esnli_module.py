@@ -55,10 +55,10 @@ class ESNLIDM(pl.LightningDataModule, WritableInterface):
 			'heuristic': heuristic_transform,
 		}
 		self.rename_columns = {
-			'premise': 'tokens.premise',
-			'hypothesis': 'tokens.hypothesis',
+			'premise': 'tokens.norm.premise',
+			'hypothesis': 'tokens.norm.hypothesis',
 			'highlight_premise': 'rationale.premise',
-			'highlight_hypothesis': 'hypothesis_rationale',
+			'highlight_hypothesis': 'rationale.hypothesis',
 			'heuristic': 'heuristic'
 		}
 	
@@ -128,9 +128,7 @@ class ESNLIDM(pl.LightningDataModule, WritableInterface):
 		)
 	
 	def setup(self, stage: str = None):
-		dataset_kwargs = dict(root=self.cache_path, n_data=self.n_data,
-		                      transformations=self.transformations,
-		                      column_name=self.rename_columns)
+		dataset_kwargs = dict(root=self.cache_path, n_data=self.n_data, transformations=self.transformations, column_name=self.rename_columns)
 		
 		# called on every GPU
 		if stage == 'fit' or stage is None:
@@ -141,16 +139,13 @@ class ESNLIDM(pl.LightningDataModule, WritableInterface):
 			self.test_set = PretransformedESNLI(split='test', **dataset_kwargs)
 	
 	def train_dataloader(self):
-		return DataLoader(self.train_set, batch_size=self.batch_size, shuffle=self.shuffle,
-		                  collate_fn=self.collate, num_workers=self.num_workers)
+		return DataLoader(self.train_set, batch_size=self.batch_size, shuffle=self.shuffle, collate_fn=self.collate, num_workers=self.num_workers)
 	
 	def val_dataloader(self):
-		return DataLoader(self.val_set, batch_size=self.batch_size, shuffle=False,
-		                  collate_fn=self.collate, num_workers=self.num_workers)
+		return DataLoader(self.val_set, batch_size=self.batch_size, shuffle=False, collate_fn=self.collate, num_workers=self.num_workers)
 	
 	def test_dataloader(self):
-		return DataLoader(self.test_set, batch_size=self.batch_size, shuffle=False,
-		                  collate_fn=self.collate, num_workers=self.num_workers)
+		return DataLoader(self.test_set, batch_size=self.batch_size, shuffle=False, collate_fn=self.collate, num_workers=self.num_workers)
 	
 	def predict_dataloader(self):
 		return self.test_dataloader()
@@ -170,10 +165,12 @@ class ESNLIDM(pl.LightningDataModule, WritableInterface):
 		return prediction
 	
 	def writing_tokens(self, datarow) -> dict:
-		
+		# Note: If there is error here, it's because we did not have time to udpate the column name during preprocessing
+		# To overcome in short term: use a notebook to make the new columns
+		# To overcome in long term: update the preprocessing script
 		return {
-			'premise': datarow['tokens.premise'],
-			'hypothesis': datarow['tokens.hypothesis'],
+			'premise': datarow['tokens.form.premise'],
+			'hypothesis': datarow['tokens.form.hypothesis'],
 		}
 	
 	## ======= PRIVATE SECTIONS ======= ##
@@ -181,24 +178,35 @@ class ESNLIDM(pl.LightningDataModule, WritableInterface):
 	def collate(self, batch):
 		# prepare batch of data for dataloader
 		b = self.list2dict(batch)
+
+		ids_premise = self.text_transform(b['tokens.norm.premise'])
+		ids_hypothesis = self.text_transform(b['tokens.norm.hypothesis'])
+		a_true_premise = self.rationale_transform(b['rationale.premise'])
+		a_true_hypothesis = self.rationale_transform(b['rationale.hypothesis'])
+		y_true = self.label_transform(b['label'])
+		# TODO: Issue at heuristic.premise and heuristic.hypothesis
+		# the column name has been changed, one must change the column name in cached file
+		# look if we can change directly in the cached file
+		heuristic_premise = self.heuristic_transform(b['heuristic.premise'])
+		heuristic_hypothesis = self.heuristic_transform(b['heuristic.hypothesis'])
 		
 		b.update({
-			'ids.premise': self.text_transform(b['tokens.premise']),
-			'ids.hypothesis': self.text_transform(b['tokens.hypothesis']),
+			'tokens.ids.premise': ids_premise,
+			'tokens.ids.hypothesis': ids_hypothesis,
 			'a_true': {
-				'premise': self.rationale_transform(b['rationale.premise']),
-				'hypothesis': self.rationale_transform(b['rationale.hypothesis']),
+				'premise': a_true_premise,
+				'hypothesis': a_true_hypothesis,
 			},
-			'y_true': self.label_transform(b['label']),
+			'y_true': y_true,
 			'heuristic': {
-				'premise': self.heuristic_transform(b['heuristic.premise']),
-				'hypothesis': self.heuristic_transform(b['heuristic.hypothesis']),
+				'premise': heuristic_premise,
+				'hypothesis': heuristic_hypothesis,
 			}
 		})
 		
 		b['padding_mask'] = {
-			'premise': b['ids.premise'] == self.vocab[SpecToken.PAD],
-			'hypothesis': b['ids.hypothesis'] == self.vocab[SpecToken.PAD],
+			'premise': b['tokens.ids.premise'] == self.vocab[SpecToken.PAD],
+			'hypothesis': b['tokens.ids.hypothesis'] == self.vocab[SpecToken.PAD],
 		}
 		
 		return b
@@ -244,8 +252,8 @@ class BertESNLIDM(pl.LightningDataModule):
 			'heuristic': heuristic_transform,
 		}
 		self.rename_columns = {
-			'premise': 'tokens.premise',
-			'hypothesis': 'tokens.hypothesis',
+			'premise': 'tokens.norm.premise',
+			'hypothesis': 'tokens.norm.hypothesis',
 			'highlight_premise': 'rationale.premise',
 			'highlight_hypothesis': 'rationale.hypothesis',
 			'heuristic': 'heuristic'
@@ -295,16 +303,13 @@ class BertESNLIDM(pl.LightningDataModule):
 			self.test_set = PretransformedESNLI(split='test', **dataset_kwargs)
 	
 	def train_dataloader(self):
-		return DataLoader(self.train_set, batch_size=self.batch_size, shuffle=self.shuffle,
-		                  collate_fn=self.collate, num_workers=self.num_workers)
+		return DataLoader(self.train_set, batch_size=self.batch_size, shuffle=self.shuffle, collate_fn=self.collate, num_workers=self.num_workers) # noqa
 	
 	def val_dataloader(self):
-		return DataLoader(self.val_set, batch_size=self.batch_size, shuffle=False,
-		                  collate_fn=self.collate, num_workers=self.num_workers)
+		return DataLoader(self.val_set, batch_size=self.batch_size, shuffle=False, collate_fn=self.collate, num_workers=self.num_workers) # noqa
 	
 	def test_dataloader(self):
-		return DataLoader(self.test_set, batch_size=self.batch_size, shuffle=False,
-		                  collate_fn=self.collate, num_workers=self.num_workers)
+		return DataLoader(self.test_set, batch_size=self.batch_size, shuffle=False, collate_fn=self.collate, num_workers=self.num_workers) # noqa
 	
 	def predict_dataloader(self):
 		return self.test_dataloader()
@@ -316,8 +321,8 @@ class BertESNLIDM(pl.LightningDataModule):
 		b = self.list2dict(batch)
 		
 		b.update({
-			'ids.premise': self.text_transform(b['tokens.premise']),
-			'ids.hypothesis': self.text_transform(b['tokens.hypothesis']),
+			'tokens.ids.premise': self.text_transform(b['tokens.norm.premise']),
+			'tokens.ids.hypothesis': self.text_transform(b['tokens.norm.hypothesis']),
 			'a_true': {
 				'premise': self.rationale_transform(b['rationale.premise']),
 				'hypothesis': self.rationale_transform(b['rationale.hypothesis']),
@@ -326,8 +331,8 @@ class BertESNLIDM(pl.LightningDataModule):
 		})
 		
 		b['padding_mask'] = {
-			'premise': b['ids.premise'] == self.vocab[SpecToken.PAD],
-			'hypothesis': b['ids.hypothesis'] == self.vocab[SpecToken.PAD],
+			'premise': b['tokens.ids.premise'] == self.vocab[SpecToken.PAD],
+			'hypothesis': b['tokens.ids.hypothesis'] == self.vocab[SpecToken.PAD],
 		}
 		
 		return b
@@ -370,10 +375,10 @@ class CLSTokenESNLIDM(ESNLIDM):
 	
 	def collate(self, batch):
 		b = super(CLSTokenESNLIDM, self).collate(batch)
-		
+		#log.debug(f'b={b.keys()}')
 		# we change here the shape of the dictionary b
 		# concatenation for one sentence.
-		t = b["ids.premise"].shape[0]
+		t = b["tokens.ids.premise"].shape[0]
 		cls_ids = torch.tensor([self.vocab[SpecToken.CLS]]).repeat(t, 1)
 		cls_padding = torch.tensor([0.]).repeat(t, 1)
 		att_padding = torch.tensor([0.]).repeat(t, 1)
@@ -385,7 +390,7 @@ class CLSTokenESNLIDM(ESNLIDM):
 		)
 		
 		b.update({
-			'tokens': torch.cat((cls_ids, b['ids.premise'], b['ids.hypothesis']), 1),
+			'tokens': torch.cat((cls_ids, b['tokens.ids.premise'], b['tokens.ids.hypothesis']), 1),
 			'padding_mask': torch.cat((cls_padding, b['padding_mask']['premise'], b['padding_mask']['hypothesis']), 1),
 			'a_true': torch.cat((att_padding, b['a_true']['premise'], b['a_true']['hypothesis']), 1),
 			'a_true_entropy': num / den
@@ -436,14 +441,15 @@ class MaskedESNLIDM(ESNLIDM):
 	def format_predict(self, prediction: pd.DataFrame):
 		
 		# convert label index to label string
-		label_columns = ['y_hat', 'y_true']
+		#label_columns = ['y_hat', 'y_true']
 		label_itos = {idx: val for idx, val in enumerate(self.LABEL_ITOS)}
 		
-		if isinstance(prediction, pd.Dataframe):
-			prediction.replace({c: label_itos for c in label_columns}, inplace=True)
+		if isinstance(prediction, pd.DataFrame):
+			prediction['label_hat'] = [label_itos[idx] for idx in prediction['y_hat']]
+			prediction['label_true'] = [label_itos[idx] for idx in prediction['y_true']]
 		elif isinstance(prediction, dict):
-			for c in label_columns:
-				prediction[c] = [label_itos[idx] for idx in prediction[c]]
+			prediction['label_hat'] = [label_itos[idx] for idx in prediction['y_hat']]
+			prediction['label_true'] = [label_itos[idx] for idx in prediction['y_true']]
 		
 		return prediction
 	
@@ -454,9 +460,9 @@ class MaskedESNLIDM(ESNLIDM):
 		b = self.list2dict(batch)
 		
 		log.debug('TODO: Check if tokens.premise + tokens.hypothesis actually concatenate the 2 list batch')
-		log.debug(f'tokens.premise = {b["tokens.premise"]}')
-		log.debug(f'tokens.hypothesis = {b["tokens.hypothesis"]}')
-		log.debug(f'premise + hypothesis tokens = {b["tokens.premise"] + b["tokens.hypothesis"]}')
+		log.debug(f'tokens.norm.premise = {b["tokens.norm.premise"]}')
+		log.debug(f'tokens.norm.hypothesis = {b["tokens.norm.hypothesis"]}')
+		log.debug(f'premise + hypothesis tokens = {b["tokens.norm.premise"] + b["tokens.norm.hypothesis"]}')
 		
 		b['input_ids'] = self.masking_token_transform(b['tokens.premise'] + b['hyphothesis_tokens'])
 		b['padding_mask'] = b['input_tokens'] == self.vocab[SpecToken.PAD]

@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 from os import path
 
 import torch
@@ -72,12 +73,16 @@ class JsonPredictionWriter(BasePredictionWriter):
         predictions = [pd.read_json(f, orient='records', encoding='utf-8') for f in files]
         df = pd.concat(predictions)
         
-        inference_path = path.join(self.output_dir, f'batch_{self.fname}.json')
+        inference_path = path.join(self.output_dir, f'{self.fname}.json')
         with open(inference_path, 'w', encoding='utf-8') as f:
             df.to_json(f, orient='records', force_ascii=False)
         
         log.info(f'Finished assembling inference files from {batch_folder}.')
         log.info(f'Inferences are stored in {inference_path}')
+        
+        shutil.rmtree(batch_folder)
+        log.info(f'Removed batch folder {batch_folder}.')
+        
         return df
     
     def write_on_epoch_end(
@@ -106,7 +111,7 @@ class JsonPredictionWriter(BasePredictionWriter):
             df = pd.concat([df, self.dm.predict_set.data], axis=1)
             df = self.dm.format_predict(df)
         
-        output_path = path.join(self.output_dir, f'epoch_{self.fname}.json')
+        output_path = path.join(self.output_dir, f'{self.fname}.json')
         with open(output_path, 'w', encoding='utf-8') as f:
             df.to_json(f, orient='records', force_ascii=False)
         log.info(f'Inference output is in file {output_path}.')

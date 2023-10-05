@@ -245,18 +245,6 @@ if __name__ == '__main__':
 	LOG_DIR = logger.log_dir
 	PREDICT_PATH = path.join(LOG_DIR, 'predictions')
 	
-	# if args.writer == Writer.PARQUET:
-	# 	from modules.inferences.html_prediction_writer import ParquetPredictionWriter
-	# 	Writer = ParquetPredictionWriter
-	# elif args.writer == Writer.HTML:
-	# 	from modules.inferences.html_prediction_writer import HtmlPredictionWriter
-	# 	Writer = HtmlPredictionWriter
-	# else:
-	# 	if args.writer != Writer.JSON:
-	# 		log.error(f'Unrecognized writer: {args.writer}, choose default: {Writer.JSON}')
-	# 	from modules.inferences.html_prediction_writer import JsonPredictionWriter
-	# 	Writer = JsonPredictionWriter
-	
 	# call back
 	early_stopping = cb.EarlyStopping('VAL/loss', patience=3, verbose=args.mode != Mode.EXP, mode='min')  # stop if no improvement withing 10 epochs
 	model_checkpoint = cb.ModelCheckpoint(filename='best', monitor='VAL/loss', mode='min')  # save the minimum val_los

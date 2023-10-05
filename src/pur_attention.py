@@ -17,7 +17,7 @@ from data_module import *
 from modules.const import SpecToken, Mode
 
 from modules.logger import log, init_logging
-from modules import metrics, rescale, INF
+from modules import metrics, report_score, rescale, INF
 
 from model.attention.pur_attention import PureAttention
 from modules.loss import IoU
@@ -33,7 +33,6 @@ class AttitModel(pl.LightningModule):
                  num_class=-1,
                  num_layers=1,
                  num_heads=1,
-                 opt="adam",
                  **kwargs):
         super(AttitModel, self).__init__()
 
@@ -63,7 +62,6 @@ class AttitModel(pl.LightningModule):
 
         # optimization stuff
         self.loss_fn = nn.CrossEntropyLoss()
-        self.opt = opt
         self.supervise_loss_fn = IoU()
         self.lagrange_loss_fn = nn.L1Loss() # Lasso loss
         self.num_class = num_class
@@ -75,7 +73,7 @@ class AttitModel(pl.LightningModule):
         self.caching_weight = None
 
         template_y_metrics = m.MetricCollection({
-            'y:accuracy': m.Accuracy(num_classes=num_class, multiclass=True),
+            #'y:accuracy': m.Accuracy(num_classes=num_class, multiclass=True),
             'y:fscore': m.F1Score(num_classes=num_class, multiclass=True)
         })
 
@@ -83,7 +81,7 @@ class AttitModel(pl.LightningModule):
             template_attention_metrics = m.MetricCollection({
                 'a:AUROC': m.AUROC(average='micro'),
                 'a:AUPRC': m.AveragePrecision(average='micro'),
-                'a:Jaccard': metrics.PowerJaccard(),
+                #'a:Jaccard': metrics.PowerJaccard(),
                 'a:IoU': m.JaccardIndex(num_classes=2),
                 'a:Recall': metrics.AURecall(),
                 'a:Precision': metrics.AUPrecision(),
@@ -112,13 +110,7 @@ class AttitModel(pl.LightningModule):
         return self.model(ids=ids, mask=mask)
 
     def configure_optimizers(self):
-        if self.opt == "adam":
-            log.debug("use of the optimizer adam")
-            optimizer = optim.Adam(self.parameters())
-        else:
-            log.debug("use of the optimizer adadelta")
-            optimizer = optim.Adadelta(self.parameters())
-        return optimizer
+        return optim.Adam(self.parameters())
 
     def training_step(self, batch, batch_idx, val=False):
         y_true = batch['y_true']
@@ -157,11 +149,18 @@ class AttitModel(pl.LightningModule):
             loss_supervise = self.supervise_loss_fn(flat_a_hat, flat_a_true)
 
         loss_lagrange = self.lagrange_loss_fn(a_hat_entropy, a_true_entropy)
+        
+        log.debug(f'loss_classif: {loss_classif}')
+        log.debug(f'loss_entropy: {loss_entropy}')
+        log.debug(f'loss_supervise: {loss_supervise}')
+        log.debug(f'loss_lagrange: {loss_lagrange}')
 
         # REGULARIZATION
         loss = loss_classif + self.lambda_entropy * loss_entropy + \
                self.lambda_supervise * loss_supervise + \
                self.lambda_lagrange * loss_lagrange
+        
+        log.debug(f'loss: {loss}')
 
         return {
             'loss': loss,
@@ -375,7 +374,6 @@ def parse_argument(prog: str = __name__, description: str = 'Experimentation on 
     # Model configuration
     parser.add_argument('--vectors', type=str, help='Pretrained vectors. See more in torchtext Vocab, example: glove.840B.300d')
     parser.add_argument('--dropout', type=float)
-    parser.add_argument('--opt', type=str, default='adam', help="the optimizer algorithm we use")
     parser.add_argument('--d_embedding', type=int, default=300, help='Embedding dimension, will be needed if vector is not precised')
     parser.add_argument('--num_layers', type=int, default=1, help='number of layers in the model')
     parser.add_argument('--num_heads', type=int, default=1, help='number of heads on each layer')
@@ -470,8 +468,7 @@ if __name__ == '__main__':
         num_heads=args.num_heads,
         d_embedding=args.d_embedding,
         data=args.data,
-        num_class=dm.num_class,
-        opt=args.opt
+        num_class=len(dm.LABEL_ITOS),
     )
 
     # call back
@@ -511,40 +508,57 @@ if __name__ == '__main__':
     hparams_path = path.join(logger.log_dir, 'hparams.yaml')
 
     if args.train:
+        log.info(f'Training...')
         model = AttitModel(**model_args)
+        
         if args.resume:
             try:
+                log.debug(f'Model resume training from {ckpt_path}')
                 trainer.fit(model, datamodule=dm, ckpt_path=ckpt_path)
             except FileNotFoundError:
-                log.info(f'Checkpoint fpath ({ckpt_path}) not found. Train from scratch.')
+                log.error(f'{ckpt_path} does not exist, run a new model instead')
                 trainer.fit(model, datamodule=dm)
+        else:
+            log.debug(f'Train new model from scratch')
+            trainer.fit(model, datamodule=dm)
 
     else:
+        log.debug(f'Model is not trained')
+        log.debug(f'\t Weights are loaded from {ckpt_path}')
+        log.debug(f'\t Hyperparameters are loaded from {hparams_path}')
         model = AttitModel.load_from_checkpoint(
             checkpoint_path=ckpt_path,
             hparams_file=hparams_path,
             **model_args
         )
-
+    
+    ##################################
+    ## Test: report score on test set
+    ##################################
     if args.train or args.test:
     
-        scores = trainer.test(
-            model=model,
-            datamodule=dm,
-        )
-    
-        # remove 'TEST/' from score dicts:
-        scores = [{k.replace('TEST/', ''): v for k, v in s.items()} for s in scores]
-    
-        for idx, score in enumerate(scores):
-            log.info(score)
-            logger.log_metrics(score)
-        
-            score_dir = args.test_path or logger.log_dir
-            os.makedirs(score_dir, exist_ok=True)
-            score_path = path.join(score_dir, f'score{"" if idx == 0 else "_" + str(idx)}.json')
-        
-            with open(score_path, 'w') as fp:
-                json.dump(score, fp, indent='\t')
-                log.info(f'Score is saved at {score_path}')
+        # scores = trainer.test(
+        #     model=model,
+        #     datamodule=dm,
+        # )
+        #
+        # # remove 'TEST/' from score dicts:
+        # scores = [{k.replace('TEST/', ''): v for k, v in s.items()} for s in scores]
+        #
+        # for idx, score in enumerate(scores):
+        #     log.info(score)
+        #     logger.log_metrics(score)
+        #
+        #     score_dir = args.test_path or logger.log_dir
+        #     os.makedirs(score_dir, exist_ok=True)
+        #     score_path = path.join(score_dir, f'score{"" if idx == 0 else "_" + str(idx)}.json')
+        #
+        #     with open(score_path, 'w') as fp:
+        #         json.dump(score, fp, indent='\t')
+        #         log.info(f'Score is saved at {score_path}')
+        log.info(f'Testing...')
+        scores = trainer.test(model=model, datamodule=dm)
+        report_score(scores, logger, args.test_path)
 
+    
+    

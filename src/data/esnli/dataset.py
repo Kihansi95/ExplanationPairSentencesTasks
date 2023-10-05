@@ -135,18 +135,21 @@ def _reformat_dataframe(data: pd.DataFrame):
 		for side in ['premise', 'hypothesis']:
 			data[side] = data[side].str.strip() \
 				.str.replace('\\', '', regex=False) \
-				.str.replace('*', '', regex=False)
+				.str.replace('*', '', regex=False) \
+				.str.replace('  ', ' ', regex=False)
+			
 			data[f'highlight_{side}'] = data[f'highlight_{side}'] \
 				.str.strip() \
 				.str.replace('\\', '', regex=False) \
-				.str.replace('**', '*', regex=False)
+				.str.replace('**', '*', regex=False)\
+				.str.replace('  ', ' ', regex=False)
 			
 			# replace all the simple quote (') by double quote (") as orignal phrases
 			idx_incoherent = data[side] != data[f'highlight_{side}'].str.replace('*', '', regex=False)
 			sub_data = data[idx_incoherent]
-			replacement_hl = [correct_quote(txt, hl) for txt, hl in
-			                  zip(sub_data[side].tolist(), sub_data[f'highlight_{side}'].tolist())]
+			replacement_hl = [correct_quote(txt, hl) for txt, hl in zip(sub_data[side].tolist(), sub_data[f'highlight_{side}'].tolist())]
 			data.loc[idx_incoherent, f'highlight_{side}'] = replacement_hl
+			
 		
 		return data
 

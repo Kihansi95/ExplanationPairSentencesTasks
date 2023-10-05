@@ -1,5 +1,6 @@
 import pickle
 import sys
+from typing import Union
 
 import numpy as np
 import pandas as pd
@@ -145,27 +146,34 @@ class YelpHatDM(pl.LightningDataModule, WritableInterface):
 	def predict_dataloader(self):
 		return self.test_dataloader()
 	
-	def format_predict(self, prediction: pd.DataFrame):
+	def format_predict(self, prediction: Union[pd.DataFrame, dict]):
 		
 		# replace label
-		label_columns = ['y_hat', 'y_true']
+		#label_columns = ['y_hat', 'y_true']
 		label_itos = {idx: val for idx, val in enumerate(self.LABEL_ITOS)}
-		prediction.replace({c: label_itos for c in label_columns}, inplace=True)
+		#prediction.replace({c: label_itos for c in label_columns}, inplace=True)
+		
+		if isinstance(prediction, pd.DataFrame):
+			prediction['label_hat'] = [label_itos[idx] for idx in prediction['y_hat']]
+			prediction['label_true'] = [label_itos[idx] for idx in prediction['y_true']]
+		elif isinstance(prediction, dict):
+			prediction['label_hat'] = [label_itos[idx] for idx in prediction['y_hat']]
+			prediction['label_true'] = [label_itos[idx] for idx in prediction['y_true']]
 		
 		# normalize heuristic into distribution
 		sum_heuris = prediction['heuristic'].apply(lambda x: sum(x))
 		if (sum_heuris != 1).any():
 			prediction['heuristic'] =  prediction['heuristic'].apply(lambda x: np.exp(x).tolist())
 		
-		if 'text_tokens' not in prediction.columns:
+		if 'tokens.form' not in prediction.columns:
 			itos = self.vocab.get_itos()
-			text_tokens = [[itos[ids] for ids in token_ids ] for token_ids in prediction['tokens'].tolist()]
-			prediction['text_tokens'] = pd.Series(text_tokens)
+			text_tokens = [[itos[ids] for ids in token_ids ] for token_ids in prediction['text'].tolist()]
+			prediction['tokens.form'] = pd.Series(text_tokens)
 		
 		return prediction
 	
 	def writing_tokens(self, datarow):
-		return datarow['text_tokens']
+		return datarow['tokens.form']
 	
 	## ======= PRIVATE SECTIONS ======= ##
 	def collate(self, batch):
@@ -173,10 +181,12 @@ class YelpHatDM(pl.LightningDataModule, WritableInterface):
 		batch = self.list2dict(batch)
 
 		b = {
-			'text_tokens': batch['text_tokens'],
+			'id': batch['id'],
+			'tokens.norm': batch['tokens.norm'],
+			'tokens.form': batch['tokens.form'],
 			'ham': batch['ham'],
 			'a_heu': batch['heuristic'],
-			'tokens': self.text_transform(batch['text_tokens']),
+			'tokens.ids': self.text_transform(batch['tokens.norm']),
 			'a_true': self.ham_transform(batch['ham']),
 			'heuristic': self.heuristic_transform(batch['heuristic']),
 			'y_true': self.label_transform(batch['label'])
@@ -185,7 +195,8 @@ class YelpHatDM(pl.LightningDataModule, WritableInterface):
 		if self.fetch_data:
 			b.update(batch)
 		
-		b['padding_mask'] = b['tokens'] == self.vocab[SpecToken.PAD]
+		b['padding_mask'] = b['tokens.ids'] == self.vocab[SpecToken.PAD]
+		#log.debug(f'Tokens: {b["tokens.norm"]}')
 		b['a_true_entropy'] = self.entropy_transform(b['a_true'], b['padding_mask'])
 		return b
 	

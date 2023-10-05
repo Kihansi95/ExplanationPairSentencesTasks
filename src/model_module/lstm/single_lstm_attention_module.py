@@ -416,7 +416,7 @@ class SingleLSTMAttentionModule(pl.LightningModule):
         # a_true_entropy = batch['a_true_entropy']
         heuristic = batch['heuristic']
         y_hat, a_hat = self(
-            ids=batch['tokens'],
+            ids=batch['tokens.ids'],
             mask=padding_mask
         )
         
@@ -425,8 +425,7 @@ class SingleLSTMAttentionModule(pl.LightningModule):
         loss_entropy = a_hat_entropy.mean()
         
         # Sigmoid for IoU loss
-        flat_a_hat = self.flatten_attention(attention=a_hat, condition=y_true > 0, pad_mask=padding_mask,
-                                            normalize='sigmoid')
+        flat_a_hat = self.flatten_attention(attention=a_hat, condition=y_true > 0, pad_mask=padding_mask, normalize='sigmoid')
         flat_a_true = self.flatten_attention(attention=a_true, condition=y_true > 0, pad_mask=padding_mask)
         
         if flat_a_true is None:
@@ -436,11 +435,9 @@ class SingleLSTMAttentionModule(pl.LightningModule):
         
         loss_heuristic = self.heuristic_loss_fn(a_hat.log_softmax(dim=1), heuristic)
         
-        if loss_heuristic > 10:
-            log.debug(f'loss_heuristic={loss_heuristic}')
-        
-        #
-        
+        #if loss_heuristic > 10:
+        #    log.debug(f'loss_heuristic={loss_heuristic}')
+            
         # flat_a_hat_sig = self.flatten_attention(attention=a_hat, condition=y_true > 0, pad_mask=padding_mask, normalize='sigmoid')
         # flat_a_true = self.flatten_attention(attention=a_true, condition=y_true > 0, pad_mask=padding_mask)
         #
@@ -480,7 +477,7 @@ class SingleLSTMAttentionModule(pl.LightningModule):
     def test_step(self, batch, batch_idx, dataloader_idx=None):
         
         y_hat, a_hat = self(
-            ids=batch['tokens'],
+            ids=batch['tokens.ids'],
             mask=batch['padding_mask']
         )
         
@@ -498,7 +495,7 @@ class SingleLSTMAttentionModule(pl.LightningModule):
         
         padding_mask = batch['padding_mask']
         y_hat, a_hat = self(
-            ids=batch['tokens'],
+            ids=batch['tokens.ids'],
             mask=batch['padding_mask']
         )
         a_hat = a_hat.detach()

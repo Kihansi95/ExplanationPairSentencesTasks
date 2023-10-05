@@ -52,7 +52,7 @@ class HateXPlainDM(pl.LightningDataModule, WritableInterface):
 
             # return a single list of tokens
             def flatten_token(batch):
-                return [token for sentence in batch['post_tokens'] for token in sentence]
+                return [token for sentence in batch['tokens.norm'] for token in sentence]
 
             train_set = HateXPlain(root=self.cache_path, split='train', n_data=self.n_data)
 
@@ -138,10 +138,10 @@ class HateXPlainDM(pl.LightningDataModule, WritableInterface):
             for c in label_columns:
                 prediction[c] = [self.LABEL_ITOS[y_hat] for y_hat in prediction[c]]
                 
-            if 'post_tokens' not in prediction.keys():
+            if 'tokens.form' not in prediction.keys():
                 itos = self.vocab.get_itos()
-                text_tokens = [[itos[ids] for ids in token_ids] for token_ids in prediction['tokens']]
-                prediction['post_tokens'] = text_tokens
+                text_tokens = [[itos[ids] for ids in token_ids] for token_ids in prediction['tokens.ids']]
+                prediction['tokens.form'] = text_tokens
                 
         elif isinstance(prediction, pd.DataFrame):
             
@@ -152,16 +152,16 @@ class HateXPlainDM(pl.LightningDataModule, WritableInterface):
             if (sum_heuris < 0).any():
                 prediction['heuristic'] = prediction['heuristic'].apply(lambda x: np.exp(x).tolist())
         
-            if 'post_tokens' not in prediction.columns:
+            if 'tokens.form' not in prediction.columns:
                 itos = self.vocab.get_itos()
-                text_tokens = [[itos[ids] for ids in token_ids] for token_ids in prediction['tokens'].tolist()]
-                prediction['post_tokens'] = pd.Series(text_tokens)
+                text_tokens = [[itos[ids] for ids in token_ids] for token_ids in prediction['tokens.ids'].tolist()]
+                prediction['tokens.form'] = pd.Series(text_tokens)
     
     
         return prediction
     
     def writing_tokens(self, datarow):
-        return datarow['post_tokens']
+        return datarow['tokens.form']
 
     ## ======= PRIVATE SECTIONS ======= ##
     def collate(self, batch):
@@ -169,7 +169,9 @@ class HateXPlainDM(pl.LightningDataModule, WritableInterface):
         batch = self.list2dict(batch)
         
         b = {
-            'tokens': self.text_transform(batch['post_tokens']),
+            'id': batch['id'],
+            'tokens.norm': batch['tokens.norm'],
+            'tokens.ids': self.text_transform(batch['tokens.norm']),
             'a_true': self.rationale_transform(batch['rationale']),
             'heuristic': self.heuristic_transform(batch['heuristic']),
             'y_true': self.label_transform(batch['label'])
@@ -178,7 +180,7 @@ class HateXPlainDM(pl.LightningDataModule, WritableInterface):
         if self.fetch_data:
             b.update(batch)
         
-        b['padding_mask'] = b['tokens'] == self.vocab[SpecToken.PAD]
+        b['padding_mask'] = b['tokens.ids'] == self.vocab[SpecToken.PAD]
         b['a_true_entropy'] = self.entropy_transform(b['a_true'], b['padding_mask'])
         return b
 

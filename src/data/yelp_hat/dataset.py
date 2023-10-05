@@ -98,8 +98,9 @@ def download_format_dataset(root: str, split: str='yelp'):
 	files = [path.join(extracted_path, f) for f in os.listdir(extracted_path) if f.endswith('.csv')]
 
 	for f in files:
-		df = pd.read_csv(f).drop(columns=['index'], errors='ignore')
+		df = pd.read_csv(f)
 		df = _reformat_dataframe(df)
+		df['id'] = path.basename(f)[:-4] + '_' + (df.index + 1).astype(str)
 		
 		parquet_path = _SUBSET.get(path.basename(f), False)
 		

@@ -23,7 +23,8 @@ def _reformat_dataframe(data: pd.DataFrame, spacy_model=None, lemma:bool=True, l
 		data[f'ham_{idx}'] = data[f'ham_html_{idx}'].apply(lambda x: yelp_hat_ham(x, spacy_model)).apply(lambda x: np.array(x))
 		
 	# Pre tokenize
-	data['text_tokens'] = data['ham_html_0'].apply(lambda x: yelp_hat_token(x, spacy_model, lemma, lower))
+	data['tokens.norm'] = data['ham_html_0'].apply(lambda x: yelp_hat_token(x, spacy_model, lemma, lower))
+	data['tokens.form'] = data['ham_html_0'].apply(lambda x: yelp_hat_token(x, spacy_model, lemma=False, lower=False))
 	
 	# Drop incoherent attention maps samples
 	data_drop = data[(data['ham_0'].str.len() == data['ham_1'].str.len()) & (data['ham_1'].str.len() == data['ham_2'].str.len())].reset_index(drop=True)
@@ -41,19 +42,19 @@ def _reformat_dataframe(data: pd.DataFrame, spacy_model=None, lemma:bool=True, l
 	# convert numpy into list:
 	data = map_np2list(data)
 	
-	if (data.text_tokens.str.len() != data.ham_0.str.len()).any():
-		mismatch_index = data.index[data.text_tokens.str.len() != data.ham_0.str.len()]
+	if (data['tokens.norm'].str.len() != data.ham_0.str.len()).any():
+		mismatch_index = data.index[data['tokens.norm'].str.len() != data.ham_0.str.len()]
 		raise ValueError(f'Tokens and Rationale dimension mismatch at: {mismatch_index}')
 		
 	# heuristic
 	heuristic_transform = HeuristicTransform(
-		batch_tokens=data['text_tokens'],
+		batch_tokens=data['tokens.norm'],
 		batch_rationale=data['ham'],
 		spacy_model=spacy_model,
 		mask_value=0,
 		cache=cache)
 	
-	heuristics = heuristic_transform(data['text_tokens'].tolist())
+	heuristics = heuristic_transform(data['tokens.norm'].tolist())
 	data['heuristic'] = pd.Series(heuristics)
 	
 	return data

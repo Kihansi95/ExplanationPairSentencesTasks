@@ -224,16 +224,6 @@ class HtmlPredictionWriter(BasePredictionWriter):
 		data = self.dm.format_predict(result)
 		data = map_dict2list(data)
 		
-		# Flatten dictionary to convert to dataframe
-		# result = quick_flatten_dict(result)
-		#
-		# # Convert to dataframe so that data module could handle
-		# df = pd.DataFrame(result, index=None if len(batch_indices) <= 0 else batch_indices)
-		# if self.dm is not None:
-		# 	df = self.dm.format_predict(df)
-		# json_str = df.to_json(orient='records')
-		# data = json.loads(json_str)
-		
 		# Load template html file. If the file is written, load the file instead
 		if not path.exists(batch_fpath):
 			with open(self.TEMPLATE_PATH, 'r') as f:

@@ -68,7 +68,7 @@ class ParquetPredictionWriter(BasePredictionWriter):
         predictions = [pd.read_parquet(f) for f in files]
         df = pd.concat(predictions)
         
-        inference_path = path.join(self.output_dir, f'batch_{self.fname}.parquet')
+        inference_path = path.join(self.output_dir, f'{self.fname}.parquet')
         df.to_parquet(inference_path)
         log.info(f'Finished assembling inference files from {batch_folder}.')
         log.info(f'Inferences are stored in {inference_path}')
@@ -98,4 +98,4 @@ class ParquetPredictionWriter(BasePredictionWriter):
         if self.dm is not None:
             df = pd.concat([df, self.dm.test_set.data], axis=1)
             df = self.dm.format_predict(df)
-        df.to_parquet(path.join(self.output_dir, f'epoch_{self.fname}.parquet'))
+        df.to_parquet(path.join(self.output_dir, f'{self.fname}.parquet'))

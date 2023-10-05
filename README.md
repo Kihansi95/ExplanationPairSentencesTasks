@@ -1,31 +1,38 @@
-# Supervision, Semi-supervision and Regularization to Improve the Plausibility of Attention in RNN Encoders
+# Plausibility of Attention Maps
 
-by Anonymous authors
+by Duc Hau NGUYEN
 
 ## Abstract
 
-Many recent advances in machine learning for natural language processing rely on the attention mechanism. This mechanism
-results in an attention map that highlights the most relevant words, or tokens, that prompt a certain decision for the
-model. While many empirical studies on a few examples postulate that attention maps can provide a justification for how
-the decision was made, only a few look for making this map understandable to humans, i.e., improving the plausibility of
-attention maps. Recent experiments with annotated data show that brute attention weights are hardly plausible because
-they are too spread on the input tokens. We thus explore several possibilities to improve models' plausibility without
-changing their architecture. In particular, one can think of regularization to increase the sparsity of attention
-weights, and supervision of the attention weights with either reference annotations or automatically generated ones. In
-this work, we study the impact of these techniques on plausibility and their effect on the model's performance.
-Supervision and regularization are cast as additional constraints to the learning objectives that apply to the attention
-layer of a bi-LSTM encoder. Results in natural language inference (NLI) show that regularization is a way to increase
-plausibility, but the same experiment on sentiment classification and hate speech classification tasks does not yield
-the same increase, showing that this method is task-dependent. Also, the particular instruction for annotation on NLI
-worsens the classification performance, which is not the case in other tasks. Beyond the attention map, the result of
-experiments on text classification tasks also shows that no matter how the gain is brought by the constraint, the
-contextualization layer plays a crucial role in finding the right space for finding plausible tokens.
+This repository is used to implement various experimentations and gather results for the thesis of Duc Hau NGUYEN.
 
-## Software implementation
+## TODO-list
 
-Experimentations are produced by `src/lstm_attention.py`, then average performances are synthetized by
-`src/summarize_result.py`. Source code used to generate the results and figures in the paper are in the `notebooks`
-folder.
+- [ ] Visualization from different maps
+- [ ] Morphosyntax post-filters: posterior filter on trained model `notebook`
+- [ ] Morphosyntax pre-filters: filter during training `py script`
+- [ ] Heuristics map: Precision-Recall curve and recompute AUPRC `notebook` 
+- [ ] Visualization prediction from _json_ `py script`
+
+
+## Structure
+
+The repository is structured as follows:
+
+```bash
+├── README.md
+├── requirements.cpu.txt
+├── requirements.gpu.txt
+├── template: template files for submitting jobs on the cluster
+├── src: source code root folder
+│   ├── data: pytorch Datasets 
+│   ├── model: pytorch Modules
+│   ├── data_module: pytorch LightningDataModule, store all data processing according to train/val/test/predict scenarios
+│   ├── model_module: pytorch LightningModule, store all model processing logic
+│   ├── module: helper modules
+│   ├── *.py: training/inferring scripts
+└── README.md 
+```
 
 ## Dependencies
 
@@ -87,11 +94,3 @@ python src/summarize_result.py \
 ```bash
 pip install tables
 ```
-
-## Citations
-
-Anonymous
-
-## Contributing
-
-Anonymous

@@ -10,7 +10,6 @@ from data.yelp_hat.dataset import YelpHat, _EXTRACTED_FILES
 
 
 class PretransformedYelpHat(YelpHat):
-
 	
 	def __init__(self, transformations : list[dict], prefix : str, split: str = 'yelp', root: str = path.join(os.getcwd(), '.cache'),  n_data: int = -1):
 		super(PretransformedYelpHat, self).__init__(split=split, root=root)

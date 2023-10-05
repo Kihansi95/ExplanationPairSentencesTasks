@@ -9,7 +9,7 @@ from tqdm import trange
 from data.esnli.dataset import ESNLI, _EXTRACTED_FILES
 from modules.logger import log
 
-_SEGMENT_SIZE = 10000
+_SEGMENT_SIZE = 50000
 
 class PretransformedESNLI(ESNLI):
 	
@@ -94,7 +94,7 @@ class PretransformedESNLI(ESNLI):
 					unpad_heuristic = score[mask.bool()].split(sent_length)
 					# transform into list to save into cache
 					unpad_heuristic = [h.tolist() for h in unpad_heuristic]
-					data[f'{side}_{heuristic_col}'] = pd.Series(unpad_heuristic)
+					data[f'{heuristic_col}.{side}'] = pd.Series(unpad_heuristic)
 				
 				data.to_parquet(path.join(segment_path, f'{fname}.pretransformed.{idx}{fext}'), index=False)
 			
