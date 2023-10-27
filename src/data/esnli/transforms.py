@@ -127,6 +127,8 @@ class HeuristicTransform(Module):
 		# similarity matrix
 		similarity = torch.bmm(vectors['premise'], vectors['hypothesis'].transpose(1, 2))
 		
+		# TODO: Need to recompute heuristic
+		
 		# apply mask
 		for side, dim in zip(batch.keys(), [2, 1]):
 			heuristic[side] = similarity.sum(dim).masked_fill_(~mask[side], - INF)

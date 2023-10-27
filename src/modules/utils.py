@@ -32,6 +32,8 @@ def rescale(attention: torch.Tensor or list, mask: torch.Tensor = None):
     """
     if isinstance(attention, list):
         attention = torch.tensor(attention)
+    elif isinstance(attention, np.ndarray):
+        attention = torch.from_numpy(attention)
     is_instance = len(attention.shape) < 2
     if is_instance:
         attention = attention.unsqueeze(0)

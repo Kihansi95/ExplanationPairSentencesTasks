@@ -8,12 +8,13 @@ This repository is used to implement various experimentations and gather results
 
 ## TODO-list
 
-- [ ] Visualization from different maps
+- [x] Visualization from different maps
+- [ ] Generate `morpho_mask`
+- [ ] Bug: heuristic map for e-SNLI was not normalized in `data/esnli/transforms`, class `HeuristicTransform()`.
 - [ ] Morphosyntax post-filters: posterior filter on trained model `notebook`
 - [ ] Morphosyntax pre-filters: filter during training `py script`
 - [ ] Heuristics map: Precision-Recall curve and recompute AUPRC `notebook` 
-- [ ] Visualization prediction from _json_ `py script`
-
+- [ ] Visualization prediction from _json_ with one single HTML file `py script`
 
 ## Structure
 
