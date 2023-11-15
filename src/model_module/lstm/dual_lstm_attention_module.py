@@ -136,32 +136,30 @@ class DualLSTMAttentionModule(pl.LightningModule):
             hypothesis_padding=padding_mask['hypothesis']
         )
         
+        # Traditional classficiation loss
         loss_classif = self.loss_fn(y_hat, y_true)
         
-        loss_entropy_pair = {s: metrics.entropy(a_hat[s], padding_mask[s], normalize=True, average='micro') for s in
-                             a_hat}
+        # Regularization on attention map
+        loss_entropy_pair = {s: metrics.entropy(a_hat[s], padding_mask[s], normalize=True, average='micro') for s in a_hat}
         loss_entropy = mean(loss_entropy_pair)
         
         # Sigmoid for IoU loss
-        flat_a_hat_sig = [self.flatten_attention(attention=a_hat[s],
-                                                 condition=y_true > 0,
-                                                 pad_mask=padding_mask[s],
-                                                 normalize='sigmoid') for s in a_hat]
-        flat_a_true = [self.flatten_attention(attention=a_true[s],
-                                              condition=y_true > 0,
-                                              pad_mask=padding_mask[s]) for s in a_true]
+        flat_a_hat_sig = [self.flatten_attention(attention=a_hat[s], condition=y_true > 0, pad_mask=padding_mask[s], normalize='sigmoid') for s in a_hat]
+        # annotation maps
+        flat_a_true = [self.flatten_attention(attention=a_true[s], condition=y_true > 0, pad_mask=padding_mask[s]) for s in a_true]
         
+        # concatenate premise + hypothesis
         flat_a_hat = torch.cat(flat_a_hat_sig)
         flat_a_true = torch.cat(flat_a_true)
         
+        # Supervision on attention map
         if flat_a_true is None:
             loss_supervise = torch.tensor(0.).type_as(loss_classif)
         else:
             loss_supervise = self.supervise_loss_fn(flat_a_hat, flat_a_true)
         
-        loss_heuristic_pair = {
-            s: self.heuristic_loss_fn(a_hat[s].masked_fill(padding_mask[s], -INF).log_softmax(dim=1), heuristic[s]) for
-            s in a_hat}
+        # Semi-supervision between the a_hat and heuristic
+        loss_heuristic_pair = {s: self.heuristic_loss_fn(a_hat[s].masked_fill(padding_mask[s], -INF).log_softmax(dim=1), heuristic[s]) for s in a_hat}
         loss_heuristic = mean(loss_heuristic_pair)
         
         loss = loss_classif + self.lambda_entropy * loss_entropy \
