@@ -87,7 +87,7 @@ def parse_argument(prog: str = __name__, description: str = 'Train LSTM-based at
     parser.add_argument('--detect_anomaly', action='store_true')
     parser.add_argument('--devices', type=int, help='Precise number of GPU available if the environment allows')
     parser.add_argument('--num_nodes', type=int, help='Precise number of node if the environment allows')
-    
+    parser.add_argument('--skip_sanity', action='store_true', help='Skip sanity validation at the beginning of training')
     # Model configuration
     parser.add_argument('--vectors', type=str, help='Pretrained vectors. See more in torchtext Vocab, example: glove.840B.300d')
     parser.add_argument('--dropout', type=float)

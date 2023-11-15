@@ -104,6 +104,7 @@ def parse_argument(prog: str = __name__, description: str = 'Train LSTM model in
 	parser.add_argument('--detect_anomaly', action='store_true')
 	parser.add_argument('--devices', type=int)
 	parser.add_argument('--num_nodes', type=int)
+	parser.add_argument('--skip_sanity', action='store_true', help='Skip sanity validation at the beginning of training')
 	
 	# Model configuration
 	parser.add_argument('--vectors', type=str, help='Pretrained vectors. See more in torchtext Vocab, example: glove.840B.300d')
@@ -268,7 +269,8 @@ if __name__ == '__main__':
 		detect_anomaly=args.detect_anomaly, # deactivate on large scale experiemnt
 		benchmark=False,    # benchmark = False better time in NLP
 		devices=args.devices,
-		num_nodes=args.num_nodes
+		num_nodes=args.num_nodes,
+		num_sanity_val_steps=0 if args.skip_sanity else 2,  # deactivate sanity check if flag is on
 	)
 	
 	# Set up output fpath

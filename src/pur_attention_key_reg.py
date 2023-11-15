@@ -532,6 +532,7 @@ if __name__ == '__main__':
         benchmark=False,  # benchmark = False better time in NLP
         devices=args.devices,
         num_nodes=args.num_nodes,
+        num_sanity_val_steps=0 if args.skip_sanity else 2,  # deactivate sanity check if flag is on
     )
 
     # Set up output fpath
