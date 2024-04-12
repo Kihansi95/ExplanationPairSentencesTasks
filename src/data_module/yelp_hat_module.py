@@ -1,5 +1,6 @@
 import pickle
 import sys
+from os import path
 from typing import Union
 
 import numpy as np
@@ -7,19 +8,19 @@ import pandas as pd
 import pytorch_lightning as pl
 import spacy
 import torch
+import torchtext.transforms as T
 from torch.utils.data import DataLoader
 from torchtext.vocab import build_vocab_from_iterator
-import torchtext.transforms as T
-from data import transforms as t
 from tqdm import tqdm
-from os import path
 
+from data import transforms as t
 from data.transforms import EntropyTransform
 from data.yelp_hat.spacy_pretok_dataset import SpacyPretokenizeYelpHat
 from modules import env
-from modules.const import Normalization, SpecToken, INF
+from modules.const import INF, Normalization, SpecToken
 from modules.inferences.writable_interface import WritableInterface
 from modules.logger import log
+
 
 class YelpHatDM(pl.LightningDataModule, WritableInterface):
 	
@@ -148,27 +149,54 @@ class YelpHatDM(pl.LightningDataModule, WritableInterface):
 	
 	def format_predict(self, prediction: Union[pd.DataFrame, dict]):
 		
+		label_columns = ['y_hat', 'y_true']
+		if isinstance(prediction, dict):
+			
+			for c in label_columns:
+				prediction[c] = [self.LABEL_ITOS[y_hat] for y_hat in prediction[c]]
+			
+			if 'tokens.form' not in prediction.keys():
+				itos = self.vocab.get_itos()
+				text_tokens = [[itos[ids] for ids in token_ids] for token_ids in prediction['tokens.ids']]
+				prediction['tokens.form'] = text_tokens
+		
+		elif isinstance(prediction, pd.DataFrame):
+			
+			prediction.replace({c: self.LABEL_ITOS for c in label_columns}, inplace=True)
+			
+			# normalize heuristic into distribution
+			sum_heuris = prediction['heuristic'].apply(lambda x: sum(x))
+			if (sum_heuris < 0).any():
+				prediction['heuristic'] = prediction['heuristic'].apply(lambda x: np.exp(x).tolist())
+			
+			if 'tokens.form' not in prediction.columns:
+				itos = self.vocab.get_itos()
+				text_tokens = [[itos[ids] for ids in token_ids] for token_ids in prediction['tokens.ids'].tolist()]
+				prediction['tokens.form'] = pd.Series(text_tokens)
+		
 		# replace label
-		#label_columns = ['y_hat', 'y_true']
-		label_itos = {idx: val for idx, val in enumerate(self.LABEL_ITOS)}
-		#prediction.replace({c: label_itos for c in label_columns}, inplace=True)
+		# label_columns = ['y_hat', 'y_true']
+		# label_itos = {idx: val for idx, val in enumerate(self.LABEL_ITOS)}
+		# prediction.replace({c: label_itos for c in label_columns}, inplace=True)
 		
-		if isinstance(prediction, pd.DataFrame):
-			prediction['label_hat'] = [label_itos[idx] for idx in prediction['y_hat']]
-			prediction['label_true'] = [label_itos[idx] for idx in prediction['y_true']]
-		elif isinstance(prediction, dict):
-			prediction['label_hat'] = [label_itos[idx] for idx in prediction['y_hat']]
-			prediction['label_true'] = [label_itos[idx] for idx in prediction['y_true']]
-		
-		# normalize heuristic into distribution
-		sum_heuris = prediction['heuristic'].apply(lambda x: sum(x))
-		if (sum_heuris != 1).any():
-			prediction['heuristic'] =  prediction['heuristic'].apply(lambda x: np.exp(x).tolist())
-		
-		if 'tokens.form' not in prediction.columns:
-			itos = self.vocab.get_itos()
-			text_tokens = [[itos[ids] for ids in token_ids ] for token_ids in prediction['text'].tolist()]
-			prediction['tokens.form'] = pd.Series(text_tokens)
+		# if isinstance(prediction, pd.DataFrame):
+		# 	prediction['label_hat'] = [label_itos[idx] for idx in prediction['y_hat']]
+		# 	prediction['label_true'] = [label_itos[idx] for idx in prediction['y_true']]
+		# elif isinstance(prediction, dict):
+		# 	prediction['label_hat'] = [label_itos[idx] for idx in prediction['y_hat']]
+		# 	prediction['label_true'] = [label_itos[idx] for idx in prediction['y_true']]
+		#
+		# # normalize heuristic into distribution
+		#
+		#
+		# sum_heuris = prediction['heuristic'].apply(lambda x: sum(x))
+		# if (sum_heuris != 1).any():
+		# 	prediction['heuristic'] =  prediction['heuristic'].apply(lambda x: np.exp(x).tolist())
+		#
+		# if 'tokens.form' not in prediction.columns:
+		# 	itos = self.vocab.get_itos()
+		# 	text_tokens = [[itos[ids] for ids in token_ids ] for token_ids in prediction['text'].tolist()]
+		# 	prediction['tokens.form'] = pd.Series(text_tokens)
 		
 		return prediction
 	
