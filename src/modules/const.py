@@ -74,4 +74,9 @@ class Writer(str, ExtendedEnum):
 	JSON='json'
 	HTML='html'
 	PARQUET='parquet'
-	
+
+
+class Color(str, ExtendedEnum):
+	HIGHLIGHT = '#FFDD4A'
+	ATTENTION = '#87CEFA'
+	HEURISTICS = '#FF579F'

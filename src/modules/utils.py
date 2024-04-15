@@ -1,8 +1,8 @@
 import json
 import os
-from os import path
 import shutil
-from typing import List, Dict, Union, Tuple
+from os import path
+from typing import Dict, List, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -247,7 +247,8 @@ def highlight(words: List[str], weights: Union[np.ndarray, torch.tensor, list], 
         display(HTML(highlighted_text))
         ```
     """
-    MAX_ALPHA = 0.8
+    # MAX_ALPHA = 0.8
+    MAX_ALPHA = 1.0
     
     # convert all type to torch tensor
     if isinstance(weights, np.ndarray):
@@ -275,7 +276,10 @@ def highlight(words: List[str], weights: Union[np.ndarray, torch.tensor, list], 
     # wrap each token in a span
     highlighted_words = []
     for word, w in zip(words, w_norm):
-        span = f'<span style="background-color:rgba{(*color, w)};">' + word + ' </span>'
+        if w > 0:
+            span = f'<span style="background-color:rgba{(*color, w)};">' + word + ' </span>'
+        else:
+            span = word + ' '
         highlighted_words.append(span)
     #highlighted_words = [f'<span style="background-color:rgba{(*color, w)};">' + word + '</span>' for word, w in zip(words, w_norm)]
     
