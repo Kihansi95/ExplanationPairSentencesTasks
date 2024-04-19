@@ -77,6 +77,6 @@ class Writer(str, ExtendedEnum):
 
 
 class Color(str, ExtendedEnum):
-	HIGHLIGHT = '#FFDD4A'
+	HIGHLIGHT = '#FFDD4B'
 	ATTENTION = '#87CEFA'
-	HEURISTICS = '#FF579F'
+	HEURISTICS = '#FF71AE'
