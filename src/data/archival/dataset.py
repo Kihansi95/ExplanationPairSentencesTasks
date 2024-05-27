@@ -3,14 +3,14 @@ from os import path
 
 import pandas as pd
 from sklearn.model_selection import train_test_split
-from torch.utils.data import MapDataPipe
 
 from modules import log
-from modules.const import InputType, SEED
+from modules.const import InputType
 
 DATASET_NAME = 'archival'
 NUM_CLASS = 2
 INPUT = InputType.DUAL
+SEED = 42
 
 # Root taken from tools/nli.
 RAW_FILE = path.join(os.getcwd(), '.cache', 'archival_nli.json')
@@ -36,7 +36,7 @@ def download_format_dataset(root: str, split: str, version: str):
 	"""
 	if path.basename(root) != DATASET_NAME:
 		root = path.join(root, DATASET_NAME)
-	root = path.join(root, version) # add version to the root
+    root = path.join(root, version)  # add version to the root
 	os.makedirs(root, exist_ok=True)
 	# make a subdata set for dev purpose
 	json_path = path.join(root, _EXTRACTED_FILES[split])
@@ -47,8 +47,10 @@ def download_format_dataset(root: str, split: str, version: str):
 		full_data = pd.read_json(json_path, encoding='utf-8')
 		
 		# split into train-val-test equally for classes
-		train_val, test = train_test_split(full_data, test_size=_TEST_SPLIT, stratify=full_data['label'],random_state=SEED)
-		train, val = train_test_split(train_val, test_size=_VAL_SPLIT / (1 - _TEST_SPLIT), stratify=train_val['label'],random_state=SEED)
+        train_val, test = train_test_split(full_data, test_size=_TEST_SPLIT, stratify=full_data['label'],
+                                           random_state=SEED)
+        train, val = train_test_split(train_val, test_size=_VAL_SPLIT / (1 - _TEST_SPLIT), stratify=train_val['label'],
+                                      random_state=SEED)
 		
 		for split_set, split in zip([train, val, test], ['train', 'val', 'test']):
 			split_set.reset_index(drop=True, inplace=True)
@@ -63,13 +65,14 @@ def download_format_dataset(root: str, split: str, version: str):
 class ArchivalNLI(MapDataPipe):
 	NUM_CLASS = NUM_CLASS
 	INPUT = INPUT
-	
-	def __init__(self, split: str = 'train', root: str = path.join(os.getcwd(), '.cache'), n_data: int = -1, version:str=None):
+    
+    def __init__(self, split: str = 'train', root: str = path.join(os.getcwd(), '.cache'), n_data: int = -1,
+                 version: str = None):
 		
 		if split not in _EXTRACTED_FILES.keys():
 			self.json_path = split
 			self.split = 'predict'
-			# 	raise ArgumentError(f'split argument {split} doesnt exist for ArchivalNLI')
+        # 	raise ArgumentError(f'split argument {split} doesnt exist for ArchivalNLI')
 		
 		else:
 			root = self.root(root)
@@ -82,7 +85,6 @@ class ArchivalNLI(MapDataPipe):
 		
 		self.data = pd.read_json(self.json_path, encoding='utf-8')
 		
-				
 		log.info(f'Load dataset from {self.json_path}')
 		
 		if n_data > 0:
@@ -127,7 +129,7 @@ class ArchivalNLI(MapDataPipe):
 	def get_version(cls, root):
 		"""
 		Get the newest version created in the folder. Version folder name should be started by v
-		
+
 		Parameters
 		----------
 		root :

@@ -1,9 +1,10 @@
 import string
-import torch
 from typing import Union
+
+import torch
 from torch.nn import Module
 from torch.nn.utils.rnn import pad_sequence
-from torchtext.vocab.vectors import pretrained_aliases as pretrained, Vectors
+from torchtext.vocab.vectors import Vectors, pretrained_aliases as pretrained
 
 
 class GoldLabelTransform(Module):

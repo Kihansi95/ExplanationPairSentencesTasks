@@ -1,24 +1,22 @@
+import json
 import os
+from argparse import ArgumentParser
 from datetime import timedelta
 from os import path
-import json
-from argparse import ArgumentParser
 
-import pandas as pd
+import pytorch_lightning as pl
 from codecarbon import EmissionsTracker, OfflineEmissionsTracker
+from pytorch_lightning import callbacks as cb
 from pytorch_lightning.callbacks import Timer
+from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning.trainer.states import RunningStage
 
 from model_module.lstm.archival_lstm_module import ArchivalLstmModule
 from modules import report_score
 from modules.const import *
-from modules.inferences.html_prediction_writer import ParquetPredictionWriter, JsonPredictionWriter
-from modules.logger import init_logging
-from modules.logger import log
+from modules.inferences import get_prediction_writer
+from modules.logger import init_logging, log
 
-import pytorch_lightning as pl
-from pytorch_lightning.loggers import TensorBoardLogger
-from pytorch_lightning import callbacks as cb
 
 def get_num_workers() -> int:
 	"""
@@ -72,6 +70,7 @@ def get_carbon_tracker(args, output_dir) -> EmissionsTracker:
 	tracker.start()
 	return tracker
 
+
 def parse_argument(prog: str = __name__, description: str = 'Train LSTM-based attention') -> dict:
 	"""
 	Parse arguments passed to the script.
@@ -84,7 +83,8 @@ def parse_argument(prog: str = __name__, description: str = 'Train LSTM-based at
 	parser = ArgumentParser(prog=prog, description=description)
 	
 	# Optional stuff
-	parser.add_argument('--disable_log_color', action='store_true', help='Activate for console does not support coloring')
+	parser.add_argument('--disable_log_color', action='store_true',
+						help='Activate for console does not support coloring')
 	parser.add_argument('--server_message', type=str, help='Get cluster ID to see error/output logs')
 	
 	# For reports
@@ -93,10 +93,14 @@ def parse_argument(prog: str = __name__, description: str = 'Train LSTM-based at
 	parser.add_argument('--track_time', action='store_true', help='Enable time tracking')
 	
 	# Trainer params
-	parser.add_argument('--cache', '-o', type=str, default=path.join(os.getcwd(), '..', '.cache'), help='Path to temporary directory to store output of training process')
-	parser.add_argument('--mode', '-m', type=str, default='dev', help='Choose among [dev, exp]. "exp" will disable the progressbar')
-	parser.add_argument('--num_workers', type=int, default=get_num_workers(), help='Indicate whether we are in IGRIDA cluster mode. Default: Use all cpu cores.')
-	parser.add_argument('--accelerator', type=str, default='auto', help='Indicate whether we are in IGRIDA cluster mode. Default: Use all cpu cores.')
+	parser.add_argument('--cache', '-o', type=str, default=path.join(os.getcwd(), '..', '.cache'),
+						help='Path to temporary directory to store output of training process')
+	parser.add_argument('--mode', '-m', type=str, default='dev',
+						help='Choose among [dev, exp]. "exp" will disable the progressbar')
+	parser.add_argument('--num_workers', type=int, default=get_num_workers(),
+						help='Indicate whether we are in IGRIDA cluster mode. Default: Use all cpu cores.')
+	parser.add_argument('--accelerator', type=str, default='auto',
+						help='Indicate whether we are in IGRIDA cluster mode. Default: Use all cpu cores.')
 	parser.add_argument('--name', type=str, help='Experimentation name. If not given, use model name instead.')
 	parser.add_argument('--version', type=str, default='default_version', help='Experimentation version')
 	parser.add_argument('--epoch', '-e', type=int, default=1, help='Number training epoch. Default: 1')
@@ -108,7 +112,8 @@ def parse_argument(prog: str = __name__, description: str = 'Train LSTM-based at
 	parser.add_argument('--num_nodes', type=int)
 	
 	# Model configuration
-	parser.add_argument('--vectors', type=str, help='Pretrained vectors. See more in torchtext Vocab, example: glove.840B.300d')
+	parser.add_argument('--vectors', type=str,
+						help='Pretrained vectors. See more in torchtext Vocab, example: fasttext.fr.300d')
 	parser.add_argument('--dropout', type=float)
 	parser.add_argument('--d_embedding', type=int, default=300, help='Embedding dimension, will be needed if vector is not precised')
 	parser.add_argument('--d_hidden_lstm', type=int, default=-1)
@@ -130,6 +135,8 @@ def parse_argument(prog: str = __name__, description: str = 'Train LSTM-based at
 	
 	# Predict configuration
 	parser.add_argument('--predict_path', type=str, help='Path to which model give predict')
+	parser.add_argument('--writer', type=str, choices=Writer.list(), default=Writer.JSON.value,
+						help='Writer to write prediction. Default: json')
 	
 	# Pipeline
 	parser.add_argument('--train', action='store_true')
@@ -163,7 +170,6 @@ if __name__ == '__main__':
 		args.train = True
 	
 	DATA_CACHE = path.join(args.cache, 'dataset')
-	MODEL_CACHE = path.join(args.cache, 'models')
 	LOGS_CACHE = path.join(args.cache, 'logs')
 	
 	# init logging
@@ -171,28 +177,30 @@ if __name__ == '__main__':
 		init_logging(cache_path=LOGS_CACHE, color=False, experiment=args.name, version=args.version)
 	else:
 		init_logging(color=True)
-		
+	
 	if args.server_message:
 		log.debug('Server message:')
 		log.info(f'{args.server_message}')
-		
+	
 	log.info(f'experimentation_name = {args.name}')
 	
 	# Init data module
 	dm_kwargs = dict(cache_path=DATA_CACHE,
-	                 batch_size=args.batch_size,
-	                 num_workers=args.num_workers,
-	                 n_data=args.n_data,
-	                 shuffle=args.shuffle,
-	                 )
+					 batch_size=args.batch_size,
+					 num_workers=args.num_workers,
+					 n_data=args.n_data,
+					 shuffle=args.shuffle,
+					 )
 	
 	if args.data == Data.ARCHIVAL_NLI:
 		from data_module.archival_module import ArchivalNLIDM
+		
 		dm_kwargs['version'] = args.data_version
 		if args.predict_path is not None: dm_kwargs['predict_path'] = args.predict_path
 		dm = ArchivalNLIDM(**dm_kwargs)
 	elif args.data == Data.XNLI:
 		from data_module.fr_xnli_module import FrXNLIDM
+		
 		dm = FrXNLIDM(**dm_kwargs)
 	else:
 		log.error(f'Unrecognized dataset: {args.data}')
@@ -201,7 +209,7 @@ if __name__ == '__main__':
 	# prepare data here before going to multiprocessing
 	dm.prepare_data()
 	model_args = dict(
-		cache_path=MODEL_CACHE,
+		cache_path=args.cache,
 		mode=args.mode,
 		vocab=dm.vocab,
 		lambda_entropy=args.lambda_entropy,
@@ -222,7 +230,6 @@ if __name__ == '__main__':
 		log.error(msg)
 		raise ValueError(msg)
 	
-		
 	# logger
 	logger = TensorBoardLogger(
 		save_dir=LOGS_CACHE,
@@ -239,9 +246,11 @@ if __name__ == '__main__':
 		fname = path.splitext(path.basename(args.predict_path))[0]
 	
 	# call back
-	early_stopping = cb.EarlyStopping('VAL/loss', patience=3, verbose=args.mode != Mode.EXP, mode='min')  # stop if no improvement withing 10 epochs
+	early_stopping = cb.EarlyStopping('VAL/loss', patience=3, verbose=args.mode != Mode.EXP,
+									  mode='min')  # stop if no improvement withing 10 epochs
 	model_checkpoint = cb.ModelCheckpoint(filename='best', monitor='VAL/loss', mode='min')  # save the minimum val_loss
-	pred_writer = JsonPredictionWriter(output_dir=PREDICT_PATH, dm=dm, fname=fname, write_interval='batch')
+	pred_writer = get_prediction_writer(writer=args.writer, dm=dm, output_dir=PREDICT_PATH,
+										write_interval='batch')  # write output during epoch
 	callbacks = [early_stopping, model_checkpoint, pred_writer]
 	
 	# Time tracking
@@ -262,9 +271,9 @@ if __name__ == '__main__':
 		strategy=args.strategy,
 		fast_dev_run=args.fast_dev_run,
 		callbacks=callbacks,
-		track_grad_norm=args.track_grad_norm, # track_grad_norm=2 for debugging
-		detect_anomaly=args.detect_anomaly, # deactivate on large scale experiemnt
-		benchmark=False,    # benchmark = False better time in NLP
+		track_grad_norm=args.track_grad_norm,  # track_grad_norm=2 for debugging
+		detect_anomaly=args.detect_anomaly,  # deactivate on large scale experiemnt
+		benchmark=False,  # benchmark = False better time in NLP
 		devices=args.devices,
 		num_nodes=args.num_nodes
 	)
@@ -330,6 +339,7 @@ if __name__ == '__main__':
 	## Report : Additional information for papers
 	#############################################
 	log.info(f'Reporting...')
+	
 	if args.track_time:
 		for stage in [RunningStage.TRAINING, RunningStage.VALIDATING, RunningStage.TESTING]:
 			duration = timedelta(seconds=int(timer.time_elapsed(stage)))
@@ -341,4 +351,3 @@ if __name__ == '__main__':
 		log.info(emission_str)
 	
 	log.info(f'Finished')
-		

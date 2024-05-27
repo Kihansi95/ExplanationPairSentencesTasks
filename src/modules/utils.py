@@ -349,6 +349,16 @@ def get_num_workers() -> int:
 ## Generic Python utils
 ########################################################################################################################
 
+def get_ci(values, verbose=False):
+    if isinstance(values, list):
+        values = torch.tensor(values)
+    
+    mu = values.mean()
+    ci_range = 1.96 * values.std() / len(values)
+    
+    if verbose:
+        return f'{mu} ± {ci_range}'
+    return mu.item(), ci_range.item()
 
 def flatten_dict(nested: dict, sep: str = '.') -> dict:
     """

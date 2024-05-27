@@ -1,15 +1,24 @@
-import json
 import os
 from os import path
 
 import torch
 from pytorch_lightning.callbacks import BasePredictionWriter
-import pandas as pd
 import pytorch_lightning as pl
 
 from modules import log, map_dict2list, recursive_tensor2list, rescale
 from modules.const import InputType
 from modules.inferences.writable_interface import WritableInterface
+import os
+from os import path
+
+import pytorch_lightning as pl
+import torch
+from pytorch_lightning.callbacks import BasePredictionWriter
+
+from modules import log, map_dict2list, recursive_tensor2list, rescale
+from modules.const import InputType
+from modules.inferences.writable_interface import WritableInterface
+
 
 class SingleSequenceHighlighter:
 	
@@ -90,7 +99,8 @@ class DualSequenceHighlighter(SingleSequenceHighlighter):
 		result['a_heu'] = {}
 		for side in result['padding_mask'].keys():
 			result['a_hat'][side] = rescale(result['a_hat'][side], result['padding_mask'][side])
-			result['a_heu'][side] = rescale(torch.exp(result['heuristic'][side]), result['padding_mask'][side])
+			if 'heuristic' in result:  # heuristic not available in archival
+				result['a_heu'][side] = rescale(torch.exp(result['heuristic'][side]), result['padding_mask'][side])
 		
 		return result
 	
@@ -180,7 +190,7 @@ class HtmlPredictionWriter(BasePredictionWriter):
 			self.highlighter.extract_tokens(entry)
 			attention_map = self.highlighter.highlight_tokens(entry['a_hat'])
 			annotation_map = self.highlighter.highlight_tokens(entry['a_true'])
-			heuristic_map = self.highlighter.highlight_tokens(entry['a_heu'])
+			heuristic_map = self.highlighter.highlight_tokens(entry['a_heu']) if 'a_heu' in entry else 'NaN'
 				
 			row = f"""<tr>
 				<td>{entry['id']}</td>

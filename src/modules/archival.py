@@ -1,13 +1,9 @@
 from itertools import product
-from typing import List
 
-import numpy as np
-import pandas as pd
 import torch
 
 from data_module.fr_xnli_module import FrXNLIDM
-from modules import rescale, log
-from modules.utils import topk_2d
+from modules import rescale
 
 
 # fr_dict = enchant.Dict("fr")
@@ -42,7 +38,7 @@ def get_block(df_block, uid, feature='norm'):
     if feature in ['text', 'token']:
         return df_block.loc[uid, feature]
     
-    block = df_block.loc[uid, 'sents']
+    block = df_block.loc[uid, 'sentences']
     block = [[tk[feature] for tk in sent] for sent in block]
     return block
 
@@ -131,9 +127,9 @@ def aggegrate_attention(inference: dict,
 
     """
     
-    y_score_matrix = inference['y_score_matrix']
+    y_score_matrix = inference['sentences.y_score']
     
-    padding_mask = inference['padding_mask']
+    padding_mask = inference['sentences.padding_mask']
     
     masked_score = y_score_matrix.clone()
     
@@ -174,15 +170,15 @@ def aggegrate_attention(inference: dict,
         # get those above epsilon
         epsilon = kwargs['epsilon']
         pair_mask *= (y_score_matrix >= epsilon).type(torch.float)
-        
         masked_score *= pair_mask
+        # print('masked_score*pairmask', masked_score)
     
     agg_attention = dict()
     
-    for side, attention in inference['attention'].items():
+    for side, attention in inference['sentences.attention'].items():
         dim_side = 1 if side == 'source' else 0
         
-        attention = inference['attention'][side]
+        attention = inference['sentences.attention'][side]
         
         # normalize masked_score along target/source
         normalized_score = masked_score / (masked_score.sum(dim=dim_side, keepdim=True) + 1e-30)
@@ -191,9 +187,10 @@ def aggegrate_attention(inference: dict,
         
         agg_attention[side] = attention.sum(dim=dim_side)
         
-        agg_attention[side] = rescale(agg_attention[side], ~padding_mask[side])
+        agg_attention[side] = rescale(agg_attention[side], padding_mask[side])
         
-        agg_attention[side] = [torch.masked_select(a, m.type(torch.bool)).tolist() for a, m in zip(agg_attention[side], padding_mask[side])]
+        agg_attention[side] = [torch.masked_select(a, m.type(torch.bool)).tolist() for a, m in
+                               zip(agg_attention[side], ~padding_mask[side])]
     
     return agg_attention
 
@@ -475,7 +472,8 @@ def inference_block_with_mask(source, target, dm, model, idx_class=1, temperatur
     # log.debug(f'source_masked; {source_masked}')
     # log.debug(f'target_masked; {target_masked}')
     
-    sentence_pairs = [{'source': s_sent, 'target' : t_sent} for s_sent, t_sent in product(source['sents'], target['sents'])]
+    sentence_pairs = [{'source': s_sent, 'target': t_sent} for s_sent, t_sent in
+                      product(source['sentences'], target['sentences'])]
     source_norms = [[token['norm'] for token in pair['source']] for pair in sentence_pairs]
     target_norms = [[token['norm'] for token in pair['target']] for pair in sentence_pairs]
     sentence_pairs = {'source': source_norms, 'target': target_norms}
